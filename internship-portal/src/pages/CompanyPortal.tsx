@@ -191,7 +191,7 @@ export default function CompanyPortal() {
               {interviews.length ? (
                 <ol className="mt-3 grid gap-2">
                   {interviews.map((iv) => (
-                    <li key={iv.interview_code} className="grid grid-cols-[4.5rem_1fr] gap-3">
+                    <li key={iv.interview_code} className="grid grid-cols-[5.5rem_1fr] gap-3">
                       <span className="num font-medium">{formatTime(iv.starts_at)}</span>
                       <span>
                         <span className="font-medium">{iv.app.student.full_name}</span>
@@ -212,7 +212,7 @@ export default function CompanyPortal() {
             <div className="p-5 bg-saffron-soft">
               <h2 className="font-bold text-[1.25rem]">How decisions work</h2>
               <p className="mt-2">
-                Before interviews, mark each applicant <b>Shortlist</b> or <b>Not shortlisted</b>. After the interview, choose <b>Selected</b>, <b>Waitlist</b>, <b>Not selected</b> or <b>Next round</b>. Students see a plain status only after the Yi team shares results.
+                Before interviews, mark each applicant <b>Shortlist</b> or <b>Not shortlisted</b>. After the interview, choose <b>Selected</b>, <b>Waitlist</b>, <b>Not selected</b> or <b>Next round</b>. What you save here updates the applicant’s status for the Yi team and on the student’s Track page.
               </p>
             </div>
           </aside>
