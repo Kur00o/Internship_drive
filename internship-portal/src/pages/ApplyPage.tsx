@@ -1,818 +1,644 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
-import type { CandidateProfile, JobMatch, Internship } from '../types';
-import { DOMAINS } from '../types';
-import { parseResume } from '../utils/resumeParser';
-import { getRecommendations, matchCandidateToInternship } from '../utils/jobMatcher';
-import { jobsApi, applicationsApi } from '../services/api';
-import { useAuth } from '../context/AuthContext';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Masthead, SiteFooter } from '../components/Brand';
+import { submitApplication, uploadResume } from '../lib/api';
+import {
+  GRAD_YEARS,
+  OFFICE_OPTIONS,
+  PROFESSIONAL_COURSES,
+  PROGRAMMES,
+  SCHOOL_SUGGESTIONS,
+  YEARS_OF_STUDY,
+  interviewSlots,
+  roleIsOpenTo,
+} from '../lib/content';
+import { useDocumentTitle, useLocalDraft, usePublicData } from '../lib/hooks';
+import { TRACKS, type ApplicationPayload, type Role, type SubmitResult } from '../lib/types';
 
-type FormStep = 'form' | 'recommendations' | 'submitted';
-
-const initialProfile: CandidateProfile = {
-  name: '',
-  email: '',
-  phone: '',
-  rollNumber: '',
-  collegeName: '',
-  degree: '',
-  department: '',
-  academicYear: '',
-  graduationYear: '',
-  cgpa: '',
-  skills: [],
-  projects: '',
-  experience: '',
-  preferredDomain: '',
-  availability: '',
-  github: '',
-  linkedin: '',
-  portfolio: '',
-  resumeFileName: '',
-  resumeFile: null,
+type Draft = Omit<ApplicationPayload, 'resume_path' | 'resume_name' | 'roles'> & {
+  roles: { code: string; challenge: string }[];
 };
 
+const EMPTY: Draft = {
+  full_name: '',
+  prn: '',
+  email: '',
+  phone: '',
+  school: '',
+  programme: '',
+  specialisation: '',
+  year_of_study: '',
+  graduation_year: '',
+  cgpa: '',
+  professional_courses: [],
+  portfolio_url: '',
+  linkedin_url: '',
+  available_from: '',
+  office_availability: '',
+  interview_availability: [],
+  prior_experience: '',
+  why_fit: '',
+  consent: false,
+  roles: [],
+};
+
+type Errors = Partial<Record<string, string>>;
+const URL_RE = /^https?:\/\/\S+\.\S+/i;
+
 export default function ApplyPage() {
-  const { user } = useAuth();
-  const [searchParams] = useSearchParams();
-  const internshipId = searchParams.get('internship');
+  useDocumentTitle('Apply · Internship Drive 2026');
+  const { data, error: loadError } = usePublicData();
+  const [params] = useSearchParams();
+  const [draft, setDraft, clearDraft] = useLocalDraft<Draft>('yi-drive-application-draft', EMPTY);
+  const [resume, setResume] = useState<File | null>(null);
+  const [errors, setErrors] = useState<Errors>({});
+  const [busy, setBusy] = useState<'' | 'uploading' | 'saving'>('');
+  const [serverError, setServerError] = useState('');
+  const [result, setResult] = useState<SubmitResult | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
-  const [internships, setInternships] = useState<Internship[]>([]);
-  const [selectedInternship, setSelectedInternship] = useState<Internship | null>(null);
+  const roles = useMemo(() => data?.roles ?? [], [data]);
+  const byCode = useMemo(() => new Map(roles.map((r) => [r.code, r])), [roles]);
+  const companies = useMemo(() => new Map((data?.companies ?? []).map((c) => [c.code, c])), [data]);
+  const chosen = draft.roles.map((c) => byCode.get(c.code)).filter(Boolean) as Role[];
+  const needsPortfolio = chosen.some((r) => r.needs_portfolio);
+  const slots = interviewSlots(data?.settings.drive_days ?? ['2026-11-02', '2026-11-03']);
+  const settings = data?.settings;
+  const closed =
+    settings && (!settings.applications_open || (settings.applications_close_at && new Date(settings.applications_close_at) < new Date()));
 
-  const [profile, setProfile] = useState<CandidateProfile>(() => {
-    return {
-      ...initialProfile,
-      name: user?.name || '',
-      email: user?.email || '',
-      rollNumber: user?.rollNumber || '',
-    };
-  });
-
-  const [skillInput, setSkillInput] = useState('');
-  const [step, setStep] = useState<FormStep>('form');
-  const [recommendations, setRecommendations] = useState<JobMatch[]>([]);
-  const [targetedMatch, setTargetedMatch] = useState<JobMatch | null>(null);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [resumeStatus, setResumeStatus] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle');
-  const [resumeError, setResumeError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Load internships from SQL backend and match selected internship
+  // preselect ?role=CODE once roles are known
   useEffect(() => {
-    jobsApi.getAll().then((list) => {
-      setInternships(list);
-      if (internshipId) {
-        const match = list.find((i) => i.id === internshipId);
-        if (match) {
-          setSelectedInternship(match);
-          setProfile((p) => ({
-            ...p,
-            preferredDomain: match.domain,
-          }));
-        }
-      }
+    const code = params.get('role')?.toUpperCase();
+    if (!code || !byCode.has(code)) return;
+    setDraft((d) => (d.roles.some((r) => r.code === code) || d.roles.length >= 3 ? d : { ...d, roles: [{ code, challenge: '' }, ...d.roles].slice(0, 3) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byCode.size]);
+
+  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
+    setDraft((d) => ({ ...d, [k]: v }));
+    if (errors[k as string]) setErrors((e) => ({ ...e, [k]: undefined }));
+  };
+
+  const toggleRole = (code: string) => {
+    setDraft((d) => {
+      if (d.roles.some((r) => r.code === code)) return { ...d, roles: d.roles.filter((r) => r.code !== code) };
+      if (d.roles.length >= 3) return d;
+      return { ...d, roles: [...d.roles, { code, challenge: '' }] };
     });
-  }, [internshipId]);
-
-  // Keep user profile in sync with session
-  useEffect(() => {
-    if (user && user.role === 'student') {
-      setProfile((p) => ({
-        ...p,
-        name: p.name || user.name,
-        email: p.email || user.email,
-        rollNumber: p.rollNumber || user.rollNumber || '',
-      }));
-    }
-  }, [user]);
-
-  const updateField = useCallback(
-    (field: keyof CandidateProfile, value: string) => {
-      setProfile((p) => ({ ...p, [field]: value }));
-      if (errors[field]) {
-        setErrors((e) => {
-          const next = { ...e };
-          delete next[field];
-          return next;
-        });
-      }
-    },
-    [errors]
-  );
-
-  const addSkill = () => {
-    const skill = skillInput.trim();
-    if (skill && !profile.skills.includes(skill)) {
-      setProfile((p) => ({ ...p, skills: [...p.skills, skill] }));
-      setSkillInput('');
-    }
+    setErrors((e) => ({ ...e, roles: undefined }));
+  };
+  const move = (i: number, dir: -1 | 1) =>
+    setDraft((d) => {
+      const r = [...d.roles];
+      const j = i + dir;
+      if (j < 0 || j >= r.length) return d;
+      [r[i], r[j]] = [r[j], r[i]];
+      return { ...d, roles: r };
+    });
+  const setChallenge = (code: string, v: string) => {
+    setDraft((d) => ({ ...d, roles: d.roles.map((r) => (r.code === code ? { ...r, challenge: v } : r)) }));
+    if (errors[`challenge_${code}`]) setErrors((e) => ({ ...e, [`challenge_${code}`]: undefined }));
   };
 
-  const removeSkill = (skill: string) => {
-    setProfile((p) => ({
-      ...p,
-      skills: p.skills.filter((s) => s !== skill),
-    }));
-  };
+  function validate(): Errors {
+    const e: Errors = {};
+    const phone = draft.phone.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+    if (!draft.full_name.trim()) e.full_name = 'Enter your full name as on your ID card.';
+    if (!/^[0-9A-Za-z]{8,14}$/.test(draft.prn.replace(/\s/g, ''))) e.prn = 'Enter your PRN: 8 to 14 letters or digits.';
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft.email.trim())) e.email = 'Enter a valid email address.';
+    if (!/^[6-9]\d{9}$/.test(phone)) e.phone = 'Enter a 10-digit mobile number.';
+    if (!draft.school.trim()) e.school = 'Enter your school or faculty.';
+    if (!draft.programme) e.programme = 'Choose your programme.';
+    if (!draft.specialisation.trim()) e.specialisation = 'Enter your specialisation or branch.';
+    if (!draft.year_of_study) e.year_of_study = 'Choose your year of study.';
+    if (!draft.graduation_year) e.graduation_year = 'Choose your graduation year.';
+    const cg = Number(draft.cgpa);
+    if (draft.cgpa === '' || Number.isNaN(cg) || cg < 0 || cg > 10) e.cgpa = 'CGPA is a number from 0 to 10.';
+    if (!draft.roles.length) e.roles = 'Choose at least one role.';
+    chosen.forEach((r) => {
+      const c = draft.roles.find((x) => x.code === r.code)?.challenge ?? '';
+      if (r.challenge && !c.trim()) e[`challenge_${r.code}`] = 'This role needs its task with your application.';
+    });
+    if (!draft.why_fit.trim()) e.why_fit = 'Tell the company why you fit your first choice.';
+    if (draft.why_fit.length > 600) e.why_fit = 'Keep it under 600 characters.';
+    if (!resume) e.resume = 'Attach your resume as a PDF.';
+    else if (resume.type !== 'application/pdf' && !/\.pdf$/i.test(resume.name)) e.resume = 'The resume must be a PDF.';
+    else if (resume.size > 5 * 1024 * 1024) e.resume = 'The resume must be 5 MB or smaller.';
+    if (needsPortfolio && !URL_RE.test(draft.portfolio_url.trim())) e.portfolio_url = 'One of your roles needs a portfolio or GitHub link starting with https://';
+    else if (draft.portfolio_url.trim() && !URL_RE.test(draft.portfolio_url.trim())) e.portfolio_url = 'Links start with https://';
+    if (draft.linkedin_url.trim() && !URL_RE.test(draft.linkedin_url.trim())) e.linkedin_url = 'Links start with https://';
+    if (!draft.available_from) e.available_from = 'Pick the date you can start.';
+    if (!draft.office_availability) e.office_availability = 'Choose one.';
+    if (!draft.interview_availability.length) e.interview_availability = 'Pick at least one.';
+    if (!draft.consent) e.consent = 'Please accept to submit.';
+    return e;
+  }
 
-  const handleSkillKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addSkill();
-    }
-  };
-
-  // Resume upload and parsing
-  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const validTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
-    ];
-    if (!validTypes.includes(file.type) && !file.name.match(/\.(pdf|docx?)$/i)) {
-      setResumeError('Please upload a PDF or DOCX file.');
+  async function onSubmit(ev: React.FormEvent) {
+    ev.preventDefault();
+    setServerError('');
+    const e = validate();
+    setErrors(e);
+    const first = Object.keys(e).find((k) => e[k]);
+    if (first) {
+      const el = formRef.current?.querySelector<HTMLElement>(`[data-field="${first}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.querySelector<HTMLElement>('input, select, textarea, button')?.focus({ preventScroll: true });
       return;
     }
-
-    setProfile((p) => ({ ...p, resumeFile: file, resumeFileName: file.name }));
-    setResumeStatus('parsing');
-    setResumeError('');
-
     try {
-      const extracted = await parseResume(file);
-
-      setProfile((p) => ({
-        ...p,
-        name: extracted.name || p.name,
-        email: extracted.email || p.email,
-        phone: extracted.phone || p.phone,
-        rollNumber: extracted.rollNumber || p.rollNumber,
-        collegeName: extracted.collegeName || p.collegeName,
-        degree: extracted.degree || p.degree,
-        department: extracted.department || p.department,
-        cgpa: extracted.cgpa || p.cgpa,
-        graduationYear: extracted.graduationYear || p.graduationYear,
-        skills: extracted.skills.length > 0 ? [...new Set([...p.skills, ...extracted.skills])] : p.skills,
-        projects: extracted.projects || p.projects,
-        experience: extracted.experience || p.experience,
-        github: extracted.github || p.github,
-        linkedin: extracted.linkedin || p.linkedin,
-        portfolio: extracted.portfolio || p.portfolio,
-      }));
-
-      setResumeStatus('done');
-    } catch (err: any) {
-      setResumeError(err.message || 'Failed to parse resume. You can fill the form manually.');
-      setResumeStatus('error');
+      setBusy('uploading');
+      const up = await uploadResume(resume!, draft.prn.trim(), draft.full_name.trim());
+      setBusy('saving');
+      const res = await submitApplication({
+        ...draft,
+        prn: draft.prn.replace(/\s/g, ''),
+        resume_path: up.path,
+        resume_name: up.name,
+        roles: draft.roles.map((r) => ({ code: r.code, challenge: r.challenge.trim() || undefined })),
+      });
+      setResult(res);
+      clearDraft();
+      window.scrollTo({ top: 0 });
+    } catch (err) {
+      setServerError((err as Error).message);
+    } finally {
+      setBusy('');
     }
-  };
-
-  // Validation
-  const validate = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!profile.rollNumber.trim()) newErrors.rollNumber = 'College roll number / student ID is required';
-    if (!profile.name.trim()) newErrors.name = 'Full name is required';
-    if (!profile.email.trim()) newErrors.email = 'Email address is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email))
-      newErrors.email = 'Enter a valid email address';
-    if (!profile.phone.trim()) newErrors.phone = 'Phone number is required';
-    else if (!/^\+?\d{10,13}$/.test(profile.phone.replace(/[\s-]/g, '')))
-      newErrors.phone = 'Enter a valid 10-digit phone number';
-    if (!profile.collegeName.trim()) newErrors.collegeName = 'College name is required';
-    if (!profile.degree.trim()) newErrors.degree = 'Degree is required';
-    if (!profile.department.trim()) newErrors.department = 'Department / branch is required';
-    if (!profile.academicYear) newErrors.academicYear = 'Academic year is required';
-    if (!profile.graduationYear) newErrors.graduationYear = 'Graduation year is required';
-    if (profile.skills.length === 0) newErrors.skills = 'Add at least one technical or professional skill';
-
-    if (profile.github && !/github\.com/i.test(profile.github))
-      newErrors.github = 'Enter a valid GitHub URL';
-    if (profile.linkedin && !/linkedin\.com/i.test(profile.linkedin))
-      newErrors.linkedin = 'Enter a valid LinkedIn URL';
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validate()) return;
-
-    if (selectedInternship) {
-      setTargetedMatch(matchCandidateToInternship(profile, selectedInternship));
-    } else {
-      setTargetedMatch(null);
-    }
-
-    const matches = getRecommendations(profile, internships);
-    setRecommendations(matches);
-    setStep('recommendations');
-    window.scrollTo(0, 0);
-  };
-
-  const handleFinalSubmit = async () => {
-    try {
-      await applicationsApi.submit(
-        profile,
-        profile.resumeFile || null,
-        selectedInternship?.id,
-        selectedInternship?.title
-      );
-      setStep('submitted');
-      window.scrollTo(0, 0);
-    } catch (err: any) {
-      alert(err.message || 'Failed to submit application to SQL database.');
-    }
-  };
-
-  // 1. Success confirmation step
-  if (step === 'submitted') {
-    return (
-      <div className="max-w-xl mx-auto py-12">
-        <div className="bg-white border border-gray-200 rounded-lg p-6 sm:p-8 text-center shadow-xs">
-          <div className="w-12 h-12 bg-green-100 text-green-800 rounded-full flex items-center justify-center mx-auto mb-4 text-xl font-bold">
-            ✓
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Application Submitted!</h1>
-          <p className="text-gray-600 text-xs mb-6">
-            {selectedInternship
-              ? `Your application for ${selectedInternship.title} in ${selectedInternship.departmentOrCompany} has been submitted to the placement coordinator.`
-              : `Your candidate profile has been registered in the college internship database.`}
-          </p>
-
-          <div className="bg-[#fdf6ec] border border-gray-200 rounded p-4 text-left mb-6 text-xs text-gray-700 space-y-2">
-            <div><span className="font-semibold text-gray-900">Student Roll No:</span> {profile.rollNumber}</div>
-            <div><span className="font-semibold text-gray-900">Applicant:</span> {profile.name} ({profile.email})</div>
-            <div><span className="font-semibold text-gray-900">Branch:</span> {profile.department} • {profile.degree}</div>
-            <div><span className="font-semibold text-gray-900">Skills ({profile.skills.length}):</span> {profile.skills.join(', ')}</div>
-            {targetedMatch && (
-              <div>
-                <span className="font-semibold text-gray-900">Target Role Match:</span>{' '}
-                <span className="text-green-800 font-bold">{targetedMatch.matchPercentage}%</span> ({targetedMatch.internship.title})
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col sm:flex-row justify-center gap-3">
-            <Link
-              to="/internships"
-              className="px-5 py-2.5 bg-green-800 text-white text-xs font-medium rounded hover:bg-green-900 transition-colors"
-            >
-              Browse Internships
-            </Link>
-            <button
-              onClick={() => {
-                setProfile({
-                  ...initialProfile,
-                  name: user?.name || '',
-                  email: user?.email || '',
-                  rollNumber: user?.rollNumber || '',
-                });
-                setStep('form');
-                setRecommendations([]);
-                setTargetedMatch(null);
-                setResumeStatus('idle');
-              }}
-              className="px-5 py-2.5 border border-green-800 text-green-800 text-xs font-medium rounded hover:bg-green-50 transition-colors"
-            >
-              Apply Again / New Profile
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   }
 
-  // 2. Recommendations & Matching Step
-  if (step === 'recommendations') {
-    return (
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Matching Opportunities for You</h1>
-        <p className="text-xs text-gray-600 mb-6">
-          Based on your verified skills, branch, and coursework, here are the opportunities evaluated against your profile.
+  if (result) return <Submitted result={result} byCode={byCode} companies={companies} whatsapp={settings?.whatsapp_url} />;
+
+  return (
+    <>
+      <Masthead compact />
+      <header className="bg-saffron frame pt-12 pb-14 md:pt-16 md:pb-20">
+        <h1 className="display" style={{ fontSize: 'clamp(3rem, 9vw, 8rem)' }}>
+          Apply
+        </h1>
+        <p className="lead mt-6 max-w-[44ch]">
+          One application for up to three roles. Your answers save on this device as you type, so you can come back to finish.
         </p>
+      </header>
 
-        {targetedMatch && (
-          <div className="mb-6 bg-white border-2 border-green-800 rounded-lg p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs px-2 py-0.5 bg-green-800 text-white font-semibold rounded">
-                Target Role
-              </span>
-              <span className="text-xs text-gray-500">The specific role you applied for</span>
-            </div>
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">{targetedMatch.internship.title}</h3>
-                <p className="text-xs text-green-800 font-medium">{targetedMatch.internship.departmentOrCompany}</p>
-              </div>
-              <div className="text-right">
-                <span
-                  className={`text-lg font-bold ${
-                    targetedMatch.matchPercentage >= 70
-                      ? 'text-green-700'
-                      : targetedMatch.matchPercentage >= 40
-                        ? 'text-yellow-600'
-                        : 'text-gray-500'
-                  }`}
-                >
-                  {targetedMatch.matchPercentage}% Match
-                </span>
-              </div>
-            </div>
-
-            <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
-              <div
-                className={`h-2 rounded-full ${
-                  targetedMatch.matchPercentage >= 70
-                    ? 'bg-green-600'
-                    : targetedMatch.matchPercentage >= 40
-                      ? 'bg-yellow-500'
-                      : 'bg-gray-400'
-                }`}
-                style={{ width: `${targetedMatch.matchPercentage}%` }}
-              />
-            </div>
-
-            <p className="text-xs text-gray-600 mb-3">{targetedMatch.internship.description}</p>
-
-            <div className="mb-3">
-              <p className="text-xs font-semibold text-gray-700 mb-1">Why this matches your profile:</p>
-              <ul className="space-y-1">
-                {targetedMatch.reasons.map((reason, idx) => (
-                  <li key={idx} className="text-xs text-gray-600 flex items-start gap-1">
-                    <span className="text-green-700 mt-0.5">•</span>
-                    {reason}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-              <span>Stipend: {targetedMatch.internship.stipend}</span>
-              <span>•</span>
-              <span>Duration: {targetedMatch.internship.duration}</span>
-              <span>•</span>
-              <span>Mode: {targetedMatch.internship.workMode}</span>
-            </div>
-          </div>
-        )}
-
-        {targetedMatch && (
-          <h2 className="text-base font-semibold text-gray-900 mb-3">Other On-Campus Matches</h2>
-        )}
-
-        {recommendations.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-500 mb-6">
-            <p className="text-sm font-medium mb-1">No other active internships posted yet.</p>
-            <p className="text-xs">Your profile has been validated and you can proceed to submit.</p>
+      <main className="bg-paper frame py-14 md:py-20">
+        {loadError && <p className="lead text-danger">{loadError}</p>}
+        {closed ? (
+          <div className="max-w-2xl">
+            <h2 className="head">Applications are closed.</h2>
+            <p className="lead mt-4">If you already applied, you can still see your status and interview slot.</p>
+            <Link to="/track" className="btn btn-ink mt-8">
+              Track my application
+            </Link>
           </div>
         ) : (
-          <div className="space-y-4 mb-8">
-            {recommendations
-              .filter((m) => m.internship.id !== selectedInternship?.id)
-              .map((match) => (
-                <div
-                  key={match.internship.id}
-                  className="bg-white border border-gray-200 rounded-lg p-5"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">
-                        {match.internship.title}
-                      </h3>
-                      <p className="text-xs text-green-800 font-medium">
-                        {match.internship.departmentOrCompany} • {match.internship.domain}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span
-                        className={`text-base font-bold ${
-                          match.matchPercentage >= 70
-                            ? 'text-green-700'
-                            : match.matchPercentage >= 40
-                              ? 'text-yellow-600'
-                              : 'text-gray-500'
-                        }`}
-                      >
-                        {match.matchPercentage}% Match
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="w-full bg-gray-100 rounded-full h-2 mb-3">
-                    <div
-                      className={`h-2 rounded-full ${
-                        match.matchPercentage >= 70
-                          ? 'bg-green-600'
-                          : match.matchPercentage >= 40
-                            ? 'bg-yellow-500'
-                            : 'bg-gray-400'
-                      }`}
-                      style={{ width: `${match.matchPercentage}%` }}
-                    />
-                  </div>
-
-                  <p className="text-xs text-gray-600 mb-3">{match.internship.description}</p>
-
-                  <div className="mb-3">
-                    <p className="text-xs font-semibold text-gray-700 mb-1">Match Analysis:</p>
-                    <ul className="space-y-1">
-                      {match.reasons.map((reason, idx) => (
-                        <li key={idx} className="text-xs text-gray-600 flex items-start gap-1">
-                          <span className="text-green-700 mt-0.5">•</span>
-                          {reason}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                    <span>{match.internship.stipend}</span>
-                    <span>•</span>
-                    <span>{match.internship.duration}</span>
-                    <span>•</span>
-                    <span>{match.internship.workMode}</span>
-                  </div>
-                </div>
-              ))}
-          </div>
-        )}
-
-        <div className="flex justify-center gap-3 pb-8">
-          <button
-            onClick={() => setStep('form')}
-            className="px-5 py-2 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50 transition-colors"
-          >
-            ← Edit Profile Details
-          </button>
-          <button
-            onClick={handleFinalSubmit}
-            className="px-5 py-2 bg-green-800 text-white text-xs font-medium rounded hover:bg-green-900 transition-colors"
-          >
-            Confirm & Submit Application
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // 3. Application Profile Form
-  return (
-    <div className="max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Internship Application Form</h1>
-      {selectedInternship ? (
-        <p className="text-xs text-gray-600 mb-6">
-          Applying for <span className="font-semibold text-green-800">{selectedInternship.title}</span> (
-          {selectedInternship.departmentOrCompany})
-        </p>
-      ) : (
-        <p className="text-xs text-gray-600 mb-6">
-          Complete your student profile to match with campus research, technical, and departmental openings.
-        </p>
-      )}
-
-      {/* Resume upload */}
-      <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-        <h2 className="text-base font-semibold text-gray-900 mb-1">Upload Resume (Optional)</h2>
-        <p className="text-xs text-gray-600 mb-3">
-          Upload your resume in PDF or DOCX format to automatically extract your details, or fill out the form manually.
-        </p>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.doc,.docx"
-            onChange={handleResumeUpload}
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="px-4 py-2 border border-green-800 text-green-800 text-xs font-medium rounded hover:bg-green-50 transition-colors"
-          >
-            {profile.resumeFile ? 'Change Resume File' : 'Upload Resume (PDF/DOCX)'}
-          </button>
-          {profile.resumeFile && (
-            <span className="text-xs text-gray-700 font-medium">📄 {profile.resumeFile.name}</span>
-          )}
-        </div>
-
-        {resumeStatus === 'parsing' && (
-          <p className="text-xs text-blue-600 mt-2">Extracting information from your resume...</p>
-        )}
-        {resumeStatus === 'done' && (
-          <p className="text-xs text-green-700 mt-2">
-            ✓ Resume parsed successfully. Please review and edit the extracted details below.
-          </p>
-        )}
-        {resumeStatus === 'error' && (
-          <p className="text-xs text-red-600 mt-2">{resumeError}</p>
-        )}
-      </div>
-
-      {/* Application form */}
-      <form onSubmit={handleSubmit} noValidate>
-        {/* Academic & Personal Identity */}
-        <fieldset className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
-          <legend className="text-base font-semibold text-gray-900 px-1">Student Information</legend>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-            <FormField
-              label="College Roll Number / Student ID"
-              required
-              error={errors.rollNumber}
-              value={profile.rollNumber}
-              onChange={(v) => updateField('rollNumber', v)}
-              placeholder="e.g. 23CS0104"
-            />
-            <FormField
-              label="Full Name"
-              required
-              error={errors.name}
-              value={profile.name}
-              onChange={(v) => updateField('name', v)}
-              placeholder="Official full name"
-            />
-            <FormField
-              label="Email"
-              required
-              type="email"
-              error={errors.email}
-              value={profile.email}
-              onChange={(v) => updateField('email', v)}
-              placeholder="student@college.edu"
-            />
-            <FormField
-              label="Phone Number"
-              required
-              type="tel"
-              error={errors.phone}
-              value={profile.phone}
-              onChange={(v) => updateField('phone', v)}
-              placeholder="+91 9876543210"
-            />
-          </div>
-        </fieldset>
-
-        {/* Education Details */}
-        <fieldset className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
-          <legend className="text-base font-semibold text-gray-900 px-1">College & Academic Details</legend>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-            <FormField
-              label="College / Institute"
-              required
-              error={errors.collegeName}
-              value={profile.collegeName}
-              onChange={(v) => updateField('collegeName', v)}
-              placeholder="e.g. University College of Engineering"
-            />
-            <FormField
-              label="Degree Program"
-              required
-              error={errors.degree}
-              value={profile.degree}
-              onChange={(v) => updateField('degree', v)}
-              placeholder="e.g. B.Tech / BE / BCA / MCA"
-            />
-            <FormField
-              label="Department / Branch"
-              required
-              error={errors.department}
-              value={profile.department}
-              onChange={(v) => updateField('department', v)}
-              placeholder="e.g. Computer Science & Engineering"
-            />
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Academic Year <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={profile.academicYear}
-                onChange={(e) => updateField('academicYear', e.target.value)}
-                className={`w-full px-3 py-2 border rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800 ${
-                  errors.academicYear ? 'border-red-400' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Select current year</option>
-                <option value="1st Year">1st Year</option>
-                <option value="2nd Year">2nd Year</option>
-                <option value="3rd Year">3rd Year</option>
-                <option value="4th Year">4th Year</option>
-                <option value="Postgraduate">Postgraduate</option>
-              </select>
-              {errors.academicYear && (
-                <p className="text-xs text-red-500 mt-1">{errors.academicYear}</p>
-              )}
-            </div>
-            <FormField
-              label="Graduation Year"
-              required
-              error={errors.graduationYear}
-              value={profile.graduationYear}
-              onChange={(v) => updateField('graduationYear', v)}
-              placeholder="e.g. 2027"
-            />
-            <FormField
-              label="Current CGPA / Percentage"
-              error={errors.cgpa}
-              value={profile.cgpa}
-              onChange={(v) => updateField('cgpa', v)}
-              placeholder="e.g. 8.5"
-            />
-          </div>
-        </fieldset>
-
-        {/* Skills & Coursework */}
-        <fieldset className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
-          <legend className="text-base font-semibold text-gray-900 px-1">Skills & Coursework</legend>
-
-          <div className="mt-3">
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Technical & Professional Skills <span className="text-red-500">*</span>
-            </label>
-            <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                value={skillInput}
-                onChange={(e) => setSkillInput(e.target.value)}
-                onKeyDown={handleSkillKeyDown}
-                placeholder="Type a skill and press Enter"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800"
-              />
-              <button
-                type="button"
-                onClick={addSkill}
-                className="px-3 py-2 bg-green-800 text-white text-xs rounded hover:bg-green-900 transition-colors"
-              >
-                Add
-              </button>
-            </div>
-            {profile.skills.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {profile.skills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="text-xs px-2 py-0.5 bg-green-50 text-green-800 rounded flex items-center gap-1 font-medium"
-                  >
-                    {skill}
-                    <button
-                      type="button"
-                      onClick={() => removeSkill(skill)}
-                      className="text-green-600 hover:text-red-500 font-bold"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
+          <form ref={formRef} onSubmit={onSubmit} noValidate className="grid gap-20">
+            <Section title="About you" note="As on your college ID. We use your mobile for interview updates.">
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-6">
+                <Text name="full_name" label="Full name" value={draft.full_name} onChange={(v) => set('full_name', v)} error={errors.full_name} autoComplete="name" />
+                <Text name="prn" label="PRN" value={draft.prn} onChange={(v) => set('prn', v)} error={errors.prn} inputMode="numeric" hint="Your 10-digit MIT-WPU PRN" />
+                <Text name="email" type="email" label="Email" value={draft.email} onChange={(v) => set('email', v)} error={errors.email} autoComplete="email" hint="College or personal; use the one you check" />
+                <Text name="phone" type="tel" label="Mobile (WhatsApp)" value={draft.phone} onChange={(v) => set('phone', v)} error={errors.phone} autoComplete="tel" inputMode="tel" />
+                <Text name="school" label="School / faculty" value={draft.school} onChange={(v) => set('school', v)} error={errors.school} list="schools" />
+                <datalist id="schools">
+                  {SCHOOL_SUGGESTIONS.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+                <Select name="programme" label="Programme" value={draft.programme} onChange={(v) => set('programme', v)} error={errors.programme} options={PROGRAMMES as unknown as string[]} />
+                <Text name="specialisation" label="Specialisation / branch" value={draft.specialisation} onChange={(v) => set('specialisation', v)} error={errors.specialisation} hint="For example CSE, Finance, HR, Psychology" />
+                <Select name="year_of_study" label="Current year of study" value={draft.year_of_study} onChange={(v) => set('year_of_study', v)} error={errors.year_of_study} options={YEARS_OF_STUDY} />
+                <Select name="graduation_year" label="Expected graduation year" value={draft.graduation_year} onChange={(v) => set('graduation_year', v)} error={errors.graduation_year} options={GRAD_YEARS} />
+                <Text name="cgpa" label="Current CGPA" value={draft.cgpa} onChange={(v) => set('cgpa', v)} error={errors.cgpa} inputMode="decimal" hint="Out of 10" />
               </div>
-            )}
-            {errors.skills && <p className="text-xs text-red-500">{errors.skills}</p>}
-          </div>
+              <fieldset className="mt-6">
+                <legend className="label">Professional course, if any</legend>
+                <div className="flex flex-wrap gap-3">
+                  {PROFESSIONAL_COURSES.map((c) => (
+                    <Check
+                      key={c}
+                      label={c}
+                      checked={draft.professional_courses.includes(c)}
+                      onChange={(on) => set('professional_courses', on ? [...draft.professional_courses, c] : draft.professional_courses.filter((x) => x !== c))}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+            </Section>
 
-          <div className="grid grid-cols-1 gap-4 mt-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Academic & Personal Projects</label>
-              <textarea
-                value={profile.projects}
-                onChange={(e) => updateField('projects', e.target.value)}
-                rows={3}
-                placeholder="Mention semester projects, lab assignments, or hackathon prototypes..."
-                className="w-full px-3 py-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Prior Experience / Campus Roles</label>
-              <textarea
-                value={profile.experience}
-                onChange={(e) => updateField('experience', e.target.value)}
-                rows={2}
-                placeholder="Technical club coordinator, volunteer, past internship..."
-                className="w-full px-3 py-2 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800"
-              />
-            </div>
-          </div>
-        </fieldset>
+            <Section title="Your roles" note="Pick up to three in order of preference. Roles that list your programme are marked.">
+              <div data-field="roles">
+                {chosen.length > 0 ? (
+                  <ol className="grid gap-2 mb-8" aria-label="Your ranked roles">
+                    {chosen.map((r, i) => (
+                      <li key={r.code} className="bg-ink text-paper flex items-center gap-4 p-4">
+                        <span className="num font-bold text-saffron text-xl w-6 shrink-0">{i + 1}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-bold leading-snug">{r.title}</span>
+                          <span className="block small text-paper/80">{companies.get(r.company_code)?.name} · {r.code}</span>
+                        </span>
+                        <span className="flex gap-1 shrink-0">
+                          <IconButton label={`Move ${r.code} up`} disabled={i === 0} onClick={() => move(i, -1)} path="M6 15l6-6 6 6" />
+                          <IconButton label={`Move ${r.code} down`} disabled={i === chosen.length - 1} onClick={() => move(i, 1)} path="M6 9l6 6 6-6" />
+                          <IconButton label={`Remove ${r.code}`} onClick={() => toggleRole(r.code)} path="M6 6l12 12M18 6L6 18" />
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="font-medium mb-6">No roles chosen yet.</p>
+                )}
+                {errors.roles && <span className="error-text mb-4">{errors.roles}</span>}
+                <p className="font-medium mb-3" aria-live="polite">
+                  {chosen.length}/3 chosen{draft.roles.length >= 3 ? ' · remove one to swap' : ''}
+                </p>
+                <div className="grid gap-8">
+                  {TRACKS.filter((t) => roles.some((r) => r.track === t)).map((t) => (
+                    <fieldset key={t}>
+                      <legend className="font-bold text-[1.125rem] mb-3">{t}</legend>
+                      <div className="grid md:grid-cols-2 gap-2">
+                        {roles
+                          .filter((r) => r.track === t)
+                          .map((r) => {
+                            const on = draft.roles.some((x) => x.code === r.code);
+                            const fits = draft.programme && roleIsOpenTo(r, draft.programme);
+                            const disabled = !r.is_open || (!on && draft.roles.length >= 3);
+                            return (
+                              <label
+                                key={r.code}
+                                className={`flex gap-3 p-3.5 cursor-pointer transition-colors ${on ? 'bg-saffron' : 'bg-mist hover:bg-mist-deep'} ${disabled && !on ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <input type="checkbox" className="mt-1 size-5 accent-[var(--color-ink)] shrink-0" checked={on} disabled={disabled} onChange={() => toggleRole(r.code)} />
+                                <span className="min-w-0">
+                                  <span className="block font-medium leading-snug">{r.title}</span>
+                                  <span className="block small">
+                                    {companies.get(r.company_code)?.short_name} · {r.stipend.replace(' / month', '/mo')}
+                                    {fits ? ' · lists your programme' : ''}
+                                    {!r.is_open ? ' · closed' : ''}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    </fieldset>
+                  ))}
+                </div>
+              </div>
 
-        {/* Preferences */}
-        <fieldset className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
-          <legend className="text-base font-semibold text-gray-900 px-1">Internship Preferences</legend>
+              <div className="mt-10" data-field="why_fit">
+                <label htmlFor="why_fit" className="label">
+                  Why are you a good fit for {chosen[0] ? chosen[0].title : 'your first choice'}?
+                </label>
+                <textarea
+                  id="why_fit"
+                  className="field"
+                  maxLength={600}
+                  value={draft.why_fit}
+                  aria-invalid={Boolean(errors.why_fit)}
+                  aria-describedby="why_fit_hint"
+                  onChange={(e) => set('why_fit', e.target.value)}
+                />
+                <span id="why_fit_hint" className="hint num">
+                  {draft.why_fit.length}/600 characters · the company reads this
+                </span>
+                {errors.why_fit && <span className="error-text">{errors.why_fit}</span>}
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Preferred Technical Domain
-              </label>
-              <select
-                value={profile.preferredDomain}
-                onChange={(e) => updateField('preferredDomain', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800"
-              >
-                <option value="">Select domain</option>
-                {DOMAINS.map((domain) => (
-                  <option key={domain} value={domain}>
-                    {domain}
-                  </option>
+              {chosen
+                .filter((r) => r.challenge)
+                .map((r) => (
+                  <div key={r.code} className="mt-10 bg-saffron-soft p-5 md:p-6" data-field={`challenge_${r.code}`}>
+                    <label htmlFor={`challenge_${r.code}`} className="label text-[1.125rem]">
+                      Task for {r.title}
+                    </label>
+                    <p className="mb-3">{r.challenge}</p>
+                    {r.challenge_materials_url && (
+                      <p className="mb-3">
+                        <a href={r.challenge_materials_url} target="_blank" rel="noreferrer" className="link font-medium">
+                          Open the materials for this task
+                        </a>
+                      </p>
+                    )}
+                    <textarea
+                      id={`challenge_${r.code}`}
+                      className="field"
+                      rows={6}
+                      maxLength={5000}
+                      placeholder="Paste your answer, or a link to it (Google Drive, Docs, Behance, YouTube) set to “anyone with the link”."
+                      value={draft.roles.find((x) => x.code === r.code)?.challenge ?? ''}
+                      aria-invalid={Boolean(errors[`challenge_${r.code}`])}
+                      onChange={(e) => setChallenge(r.code, e.target.value)}
+                    />
+                    {errors[`challenge_${r.code}`] && <span className="error-text">{errors[`challenge_${r.code}`]}</span>}
+                  </div>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Availability</label>
-              <select
-                value={profile.availability}
-                onChange={(e) => updateField('availability', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800"
-              >
-                <option value="">Select availability</option>
-                <option value="Immediate">Immediate</option>
-                <option value="Part-time during semester">Part-time during semester</option>
-                <option value="Upcoming semester break">Upcoming semester break</option>
-                <option value="Summer vacation">Summer vacation</option>
-              </select>
-            </div>
-          </div>
-        </fieldset>
+            </Section>
 
-        {/* Links */}
-        <fieldset className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <legend className="text-base font-semibold text-gray-900 px-1">Online Profiles (Optional)</legend>
+            <Section title="Documents" note="PDF only, 5 MB or less. Name it PRN_Name_Resume.pdf if you can.">
+              <div data-field="resume">
+                <span className="label" id="resume_label">
+                  Resume
+                </span>
+                <label
+                  className={`flex flex-col sm:flex-row sm:items-center gap-4 p-5 cursor-pointer transition-colors ${resume ? 'bg-green-soft' : 'bg-mist hover:bg-mist-deep'}`}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) {
+                      setResume(f);
+                      setErrors((x) => ({ ...x, resume: undefined }));
+                    }
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    className="sr-only"
+                    aria-labelledby="resume_label"
+                    aria-describedby="resume_hint"
+                    onChange={(e) => {
+                      setResume(e.target.files?.[0] ?? null);
+                      setErrors((x) => ({ ...x, resume: undefined }));
+                    }}
+                  />
+                  <span className="btn btn-ink pointer-events-none shrink-0">{resume ? 'Change file' : 'Choose PDF'}</span>
+                  <span className="min-w-0 font-medium break-words">
+                    {resume ? `${resume.name} · ${(resume.size / 1024 / 1024).toFixed(2)} MB` : 'or drop it here'}
+                  </span>
+                </label>
+                <span id="resume_hint" className="hint">
+                  PDF, up to 5 MB. Files attached here do not save in the draft; attach again if you reload.
+                </span>
+                {errors.resume && <span className="error-text">{errors.resume}</span>}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-6 mt-8">
+                <Text
+                  name="portfolio_url"
+                  type="url"
+                  label={needsPortfolio ? 'Portfolio / GitHub link (needed for your roles)' : 'Portfolio / GitHub link'}
+                  value={draft.portfolio_url}
+                  onChange={(v) => set('portfolio_url', v)}
+                  error={errors.portfolio_url}
+                  hint={chosen.filter((r) => r.needs_portfolio).map((r) => `${r.code}: ${r.portfolio_hint}`).join(' · ') || 'Optional unless a role asks for it'}
+                />
+                <Text name="linkedin_url" type="url" label="LinkedIn (optional)" value={draft.linkedin_url} onChange={(v) => set('linkedin_url', v)} error={errors.linkedin_url} />
+              </div>
+              <div className="mt-6">
+                <label htmlFor="prior_experience" className="label">
+                  Prior internships or work (optional)
+                </label>
+                <textarea id="prior_experience" className="field" maxLength={600} rows={3} value={draft.prior_experience} onChange={(e) => set('prior_experience', e.target.value)} placeholder="Company and role, or leave blank" />
+              </div>
+            </Section>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-            <FormField
-              label="GitHub"
-              error={errors.github}
-              value={profile.github}
-              onChange={(v) => updateField('github', v)}
-              placeholder="https://github.com/username"
-            />
-            <FormField
-              label="LinkedIn"
-              error={errors.linkedin}
-              value={profile.linkedin}
-              onChange={(v) => updateField('linkedin', v)}
-              placeholder="https://linkedin.com/in/username"
-            />
-            <FormField
-              label="Portfolio / Projects Link"
-              value={profile.portfolio}
-              onChange={(v) => updateField('portfolio', v)}
-              placeholder="https://yourportfolio.site"
-            />
-          </div>
-        </fieldset>
+            <Section title="Availability" note={`Companies want ${data?.settings.min_duration?.toLowerCase() ?? 'three months minimum'}, joining ${data?.settings.joining?.toLowerCase() ?? 'as soon as possible'}.`}>
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-6">
+                <Text name="available_from" type="date" label="I can start from" value={draft.available_from} onChange={(v) => set('available_from', v)} error={errors.available_from} min={new Date().toISOString().slice(0, 10)} />
+              </div>
+              <fieldset className="mt-8" data-field="office_availability">
+                <legend className="label">Can you work from an office in Pune (Baner, Hinjewadi, Bhosari)?</legend>
+                <div className="flex flex-wrap gap-3">
+                  {OFFICE_OPTIONS.map((o) => (
+                    <Radio key={o} name="office" label={o} checked={draft.office_availability === o} onChange={() => set('office_availability', o)} />
+                  ))}
+                </div>
+                {errors.office_availability && <span className="error-text">{errors.office_availability}</span>}
+              </fieldset>
+              <fieldset className="mt-8" data-field="interview_availability">
+                <legend className="label">When can you interview?</legend>
+                <div className="flex flex-wrap gap-3">
+                  {slots.map((s) => (
+                    <Check
+                      key={s}
+                      label={s}
+                      checked={draft.interview_availability.includes(s)}
+                      onChange={(on) => set('interview_availability', on ? [...draft.interview_availability, s] : draft.interview_availability.filter((x) => x !== s))}
+                    />
+                  ))}
+                </div>
+                <span className="hint">{data?.settings.timings_note || 'Timings to be announced'}.</span>
+                {errors.interview_availability && <span className="error-text">{errors.interview_availability}</span>}
+              </fieldset>
+            </Section>
 
-        <div className="flex justify-end pb-8">
-          <button
-            type="submit"
-            className="px-6 py-2.5 bg-green-800 text-white text-xs font-medium rounded hover:bg-green-900 transition-colors"
-          >
-            Review & Find Matching Roles →
-          </button>
-        </div>
-      </form>
+            <Section title="Declaration" note="Read once; it is short.">
+              <div data-field="consent">
+                <label className={`flex gap-4 p-5 cursor-pointer ${draft.consent ? 'bg-green-soft' : 'bg-mist'}`}>
+                  <input type="checkbox" className="mt-1 size-5 accent-[var(--color-ink)] shrink-0" checked={draft.consent} onChange={(e) => set('consent', e.target.checked)} aria-invalid={Boolean(errors.consent)} />
+                  <span>
+                    The information here is true. I agree that the Yi MIT-WPU team may share my application with the companies I apply to. I can commit to at least three months, and I accept the one-offer rule: if I accept an offer, my other applications in this drive are withdrawn.
+                  </span>
+                </label>
+                {errors.consent && <span className="error-text">{errors.consent}</span>}
+              </div>
+              {serverError && (
+                <p role="alert" className="mt-6 bg-danger text-paper p-4 font-medium">
+                  {serverError}
+                </p>
+              )}
+              {Object.values(errors).some(Boolean) && !serverError && (
+                <p role="alert" className="mt-6 font-medium text-danger">
+                  A few fields need attention; they are marked above.
+                </p>
+              )}
+              <div className="mt-8 flex flex-wrap items-center gap-4">
+                <button type="submit" className="btn btn-ink text-lg px-8" disabled={Boolean(busy) || !data}>
+                  {busy === 'uploading' ? 'Uploading resume…' : busy === 'saving' ? 'Submitting…' : 'Submit application'}
+                </button>
+                <span className="small text-ink-soft">One application per PRN.</span>
+                <button
+                  type="button"
+                  className="link small ml-auto"
+                  onClick={() => {
+                    if (!confirm('Clear everything you have typed on this device?')) return;
+                    clearDraft();
+                    setDraft(EMPTY);
+                    setResume(null);
+                    setErrors({});
+                  }}
+                >
+                  Clear saved answers
+                </button>
+              </div>
+            </Section>
+          </form>
+        )}
+      </main>
+      <SiteFooter />
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ pieces */
+function Section({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
+  return (
+    <section className="grid lg:grid-cols-12 gap-x-6 gap-y-6">
+      <div className="lg:col-span-4">
+        <h2 className="font-bold tracking-tight lg:sticky lg:top-6" style={{ fontSize: 'clamp(1.75rem, 2.6vw, 2.5rem)', lineHeight: 1.05 }}>
+          {title}
+          <span className="block text-[1.0625rem] font-normal tracking-normal mt-3 leading-snug max-w-[34ch]">{note}</span>
+        </h2>
+      </div>
+      <div className="lg:col-span-8">{children}</div>
+    </section>
+  );
+}
+
+function Text(props: {
+  name: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  hint?: string;
+  type?: string;
+  autoComplete?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  list?: string;
+  min?: string;
+}) {
+  const id = `f_${props.name}`;
+  const describedBy = [props.hint && `${id}_hint`, props.error && `${id}_err`].filter(Boolean).join(' ') || undefined;
+  return (
+    <div data-field={props.name}>
+      <label htmlFor={id} className="label">
+        {props.label}
+      </label>
+      <input
+        id={id}
+        className="field"
+        type={props.type ?? 'text'}
+        value={props.value}
+        autoComplete={props.autoComplete}
+        inputMode={props.inputMode}
+        list={props.list}
+        min={props.min}
+        aria-invalid={Boolean(props.error)}
+        aria-describedby={describedBy}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+      {props.hint && (
+        <span id={`${id}_hint`} className="hint">
+          {props.hint}
+        </span>
+      )}
+      {props.error && (
+        <span id={`${id}_err`} className="error-text">
+          {props.error}
+        </span>
+      )}
     </div>
   );
 }
 
-// Reusable form field component
-function FormField({
-  label,
-  required,
-  type = 'text',
-  error,
-  value,
-  onChange,
-  placeholder,
+function Select(props: { name: string; label: string; value: string; onChange: (v: string) => void; options: string[]; error?: string }) {
+  const id = `f_${props.name}`;
+  return (
+    <div data-field={props.name}>
+      <label htmlFor={id} className="label">
+        {props.label}
+      </label>
+      <select id={id} className="field" value={props.value} aria-invalid={Boolean(props.error)} aria-describedby={props.error ? `${id}_err` : undefined} onChange={(e) => props.onChange(e.target.value)}>
+        <option value="">Choose…</option>
+        {props.options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      {props.error && (
+        <span id={`${id}_err`} className="error-text">
+          {props.error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className={`inline-flex items-center gap-2.5 min-h-[44px] px-4 cursor-pointer transition-colors font-medium ${checked ? 'bg-saffron' : 'bg-mist hover:bg-mist-deep'}`}>
+      <input type="checkbox" className="size-4 accent-[var(--color-ink)]" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+function Radio({ name, label, checked, onChange }: { name: string; label: string; checked: boolean; onChange: () => void }) {
+  return (
+    <label className={`inline-flex items-center gap-2.5 min-h-[44px] px-4 cursor-pointer transition-colors font-medium ${checked ? 'bg-saffron' : 'bg-mist hover:bg-mist-deep'}`}>
+      <input type="radio" name={name} className="size-4 accent-[var(--color-ink)]" checked={checked} onChange={onChange} />
+      {label}
+    </label>
+  );
+}
+
+function IconButton({ label, onClick, path, disabled }: { label: string; onClick: () => void; path: string; disabled?: boolean }) {
+  return (
+    <button type="button" aria-label={label} title={label} disabled={disabled} onClick={onClick} className="size-10 grid place-items-center bg-paper/10 hover:bg-paper/25 disabled:opacity-30 transition-colors">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+        <path d={path} stroke="currentColor" strokeWidth="2.5" fill="none" />
+      </svg>
+    </button>
+  );
+}
+
+function Submitted({
+  result,
+  byCode,
+  companies,
+  whatsapp,
 }: {
-  label: string;
-  required?: boolean;
-  type?: string;
-  error?: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
+  result: SubmitResult;
+  byCode: Map<string, Role>;
+  companies: Map<string, { name: string }>;
+  whatsapp?: string | null;
 }) {
   return (
-    <div>
-      <label className="block text-xs font-semibold text-gray-700 mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={`w-full px-3 py-2 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-green-800 focus:border-green-800 ${
-          error ? 'border-red-400' : 'border-gray-300'
-        }`}
-      />
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-    </div>
+    <>
+      <Masthead compact />
+      <main className="bg-green frame py-16 md:py-24 min-h-[80svh]">
+        <h1 className="display" style={{ fontSize: 'clamp(2.75rem, 8vw, 7rem)' }}>
+          Application in
+        </h1>
+        <p className="lead mt-6 max-w-[44ch]">
+          Thank you, {result.full_name.split(' ')[0]}. Keep these IDs; take a screenshot if that is easiest. You will need your PRN, email and mobile to check your status.
+        </p>
+        <dl className="mt-10 grid gap-2 max-w-3xl">
+          <div className="bg-ink text-paper p-5 flex flex-wrap items-baseline justify-between gap-3">
+            <dt className="font-medium">Student ID</dt>
+            <dd className="num font-bold text-2xl">{result.student_code}</dd>
+          </div>
+          {result.applications.map((a) => {
+            const r = byCode.get(a.role_code);
+            return (
+              <div key={a.app_code} className="bg-paper p-5 flex flex-wrap items-baseline justify-between gap-3">
+                <dt>
+                  <span className="block font-bold">
+                    Choice {a.preference}: {r?.title ?? a.role_code}
+                  </span>
+                  <span className="block small">{r ? companies.get(r.company_code)?.name : ''}</span>
+                </dt>
+                <dd className="num font-bold text-xl">{a.app_code}</dd>
+              </div>
+            );
+          })}
+        </dl>
+        <div className="flex flex-wrap gap-3 mt-10">
+          <Link to="/track" className="btn btn-ink">
+            Track my application
+          </Link>
+          {whatsapp && (
+            <a href={whatsapp} target="_blank" rel="noreferrer" className="btn btn-paper">
+              Join the WhatsApp group
+            </a>
+          )}
+        </div>
+      </main>
+      <SiteFooter />
+    </>
   );
 }
