@@ -449,6 +449,19 @@ export default function ApplyPage() {
                   {busy === 'uploading' ? 'Uploading resume…' : busy === 'saving' ? 'Submitting…' : 'Submit application'}
                 </button>
                 <span className="small text-ink-soft">One application per PRN.</span>
+                <button
+                  type="button"
+                  className="link small ml-auto"
+                  onClick={() => {
+                    if (!confirm('Clear everything you have typed on this device?')) return;
+                    clearDraft();
+                    setDraft(EMPTY);
+                    setResume(null);
+                    setErrors({});
+                  }}
+                >
+                  Clear saved answers
+                </button>
               </div>
             </Section>
           </form>
