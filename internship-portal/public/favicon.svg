@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#166534"/>
-  <text x="16" y="22" text-anchor="middle" fill="#fdf6ec" font-family="sans-serif" font-size="18" font-weight="bold">IC</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" fill="#373435"/>
+  <path d="M10 12h9l8 15 8-15h9L31 35v17h-8V35z" fill="#ffffff"/>
+  <rect x="45" y="12" width="9" height="9" fill="#f58634"/>
+  <rect x="45" y="24" width="9" height="28" fill="#00a859"/>
 </svg>
