@@ -1,96 +1,43 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import Navbar from './components/Navbar';
-import Footer from './components/Footer';
-import HomePage from './pages/HomePage';
-import InternshipsPage from './pages/InternshipsPage';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
+import Home from './pages/Home';
+import RolePage from './pages/RolePage';
 import ApplyPage from './pages/ApplyPage';
-import AdminPage from './pages/AdminPage';
-import LoginPage from './pages/LoginPage';
+import TrackPage from './pages/TrackPage';
+import SchedulePage from './pages/SchedulePage';
+import NotFound from './pages/NotFound';
 
-function ProtectedRoute({
-  children,
-  adminOnly = false,
-}: {
-  children: React.ReactNode;
-  adminOnly?: boolean;
-}) {
-  const { user } = useAuth();
+const Organiser = lazy(() => import('./pages/organiser/Organiser'));
+const CompanyPortal = lazy(() => import('./pages/CompanyPortal'));
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (adminOnly && user.role !== 'admin') {
-    return <Navigate to="/" replace />;
-  }
-
-  return <>{children}</>;
+function ScrollReset() {
+  const { pathname, hash } = useLocation();
+  useEffect(() => {
+    if (!hash) window.scrollTo(0, 0);
+  }, [pathname, hash]);
+  return null;
 }
 
-function LoginRoute() {
-  const { user } = useAuth();
-
-  if (user) {
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />;
-  }
-
-  return <LoginPage />;
+function Loading() {
+  return <p className="frame py-24 lead">Loading…</p>;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <div className="min-h-screen flex flex-col bg-[#fdf6ec]">
-          <Navbar />
-          <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 py-8">
-            <Routes>
-              {/* Login Route */}
-              <Route path="/login" element={<LoginRoute />} />
-
-              {/* Protected Routes — User must login first */}
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <HomePage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/internships"
-                element={
-                  <ProtectedRoute>
-                    <InternshipsPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/apply"
-                element={
-                  <ProtectedRoute>
-                    <ApplyPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedRoute adminOnly>
-                    <AdminPage />
-                  </ProtectedRoute>
-                }
-              />
-
-              {/* Fallback */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-          <Footer />
-        </div>
-      </BrowserRouter>
-    </AuthProvider>
+    <BrowserRouter>
+      <ScrollReset />
+      <Suspense fallback={<Loading />}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/roles/:code" element={<RolePage />} />
+          <Route path="/apply" element={<ApplyPage />} />
+          <Route path="/track" element={<TrackPage />} />
+          <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/organiser/*" element={<Organiser />} />
+          <Route path="/company/:token" element={<CompanyPortal />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
   );
 }
