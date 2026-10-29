@@ -6,11 +6,13 @@ import { amIOrganizer } from '../../lib/api';
 import { useDocumentTitle } from '../../lib/hooks';
 import { supabase } from '../../lib/supabase';
 import Applications from './Applications';
+import Attendance from './Attendance';
 import Companies from './Companies';
 import DayBoard from './DayBoard';
 import Overview from './Overview';
 import Schedule from './Schedule';
 import Settings from './Settings';
+import Slots from './Slots';
 import { OrganiserStore, useStore } from './store';
 
 export default function Organiser() {
@@ -62,6 +64,8 @@ function Shell({ email }: { email: string }) {
   const tabs = [
     ['', 'Overview'],
     ['applications', 'Applications'],
+    ['attendance', 'Attendance'],
+    ['slots', 'Slots & venues'],
     ['schedule', 'Schedule'],
     ['day', 'Interview day'],
     ['companies', 'Companies & roles'],
@@ -108,6 +112,8 @@ function Shell({ email }: { email: string }) {
         <Routes>
           <Route index element={<Overview />} />
           <Route path="applications" element={<Applications />} />
+          <Route path="attendance" element={<Attendance />} />
+          <Route path="slots" element={<Slots />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="day" element={<DayBoard />} />
           <Route path="companies" element={<Companies />} />
