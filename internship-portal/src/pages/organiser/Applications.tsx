@@ -16,10 +16,14 @@ export default function Applications() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 30;
+
   const role = params.get('role') ?? '';
   const status = params.get('status') ?? '';
   const company = params.get('company') ?? '';
   const track = params.get('track') ?? '';
+  const sort = params.get('sort') ?? 'newest';
   const setParam = (k: string, v: string) => {
     const p = new URLSearchParams(params);
     if (v) p.set(k, v);
@@ -27,9 +31,13 @@ export default function Applications() {
     setParams(p, { replace: true });
   };
 
+  useEffect(() => {
+    setPage(1);
+  }, [q, role, status, company, track, sort]);
+
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return apps.filter((a) => {
+    const filtered = apps.filter((a) => {
       const r = roleBy.get(a.role_code);
       if (role && a.role_code !== role) return false;
       if (status && a.status !== status) return false;
@@ -41,10 +49,22 @@ export default function Applications() {
       }
       return true;
     });
-  }, [apps, roleBy, role, status, company, track, q]);
+
+    return filtered.sort((a, b) => {
+      const tA = new Date(a.created_at).getTime();
+      const tB = new Date(b.created_at).getTime();
+      return sort === 'oldest' ? tA - tB : tB - tA;
+    });
+  }, [apps, roleBy, role, status, company, track, q, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const startIdx = rows.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE;
+  const endIdx = Math.min(startIdx + PAGE_SIZE, rows.length);
+  const pagedRows = rows.slice(startIdx, endIdx);
 
   const open = apps.find((a) => a.id === openId) ?? null;
-  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const allChecked = pagedRows.length > 0 && pagedRows.every((r) => selected.has(r.id));
 
   async function applyBulk() {
     if (!selected.size) return;
@@ -95,10 +115,48 @@ export default function Applications() {
         <Filter id="a_status" label="Status" value={status} onChange={(v) => setParam('status', v)} options={STATUSES.map((s) => [s, `${s} (${apps.filter((a) => a.status === s).length})`])} />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="font-medium num">
-          {rows.length} of {apps.length} applications
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="font-medium num">
+            {rows.length === 0
+              ? '0 applications'
+              : `Showing ${startIdx + 1}–${endIdx} of ${rows.length} applications`}
+            {rows.length !== apps.length && <span className="text-ink-soft"> (filtered from {apps.length})</span>}
+          </p>
+          <div className="flex items-center gap-2 border-l border-mist-deep pl-3">
+            <label htmlFor="a_sort_inline" className="small text-ink-soft">Sort:</label>
+            <select
+              id="a_sort_inline"
+              className="field !min-h-[34px] !py-1 !px-2.5 w-auto text-sm"
+              value={sort}
+              onChange={(e) => setParam('sort', e.target.value)}
+            >
+              <option value="newest">Newest first (latest)</option>
+              <option value="oldest">Oldest first (earliest)</option>
+            </select>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5 small font-medium border-l border-mist-deep pl-3">
+              <button
+                className="btn btn-quiet !min-h-[32px] !py-1 !px-2.5 disabled:opacity-30"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <span className="num px-1.5">
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                className="btn btn-quiet !min-h-[32px] !py-1 !px-2.5 disabled:opacity-30"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {selected.size > 0 && (
             <>
@@ -131,7 +189,12 @@ export default function Applications() {
             <thead className="small text-ink-soft">
               <tr>
                 <th className="py-2 pr-2 w-8">
-                  <input type="checkbox" aria-label="Select all shown" checked={allChecked} onChange={(e) => setSelected(e.target.checked ? new Set(rows.map((r) => r.id)) : new Set())} />
+                  <input type="checkbox" aria-label="Select all shown on this page" checked={allChecked} onChange={(e) => {
+                  const s = new Set(selected);
+                  if (e.target.checked) pagedRows.forEach((r) => s.add(r.id));
+                  else pagedRows.forEach((r) => s.delete(r.id));
+                  setSelected(s);
+                }} />
                 </th>
                 <th className="py-2 pr-3 font-medium">Application</th>
                 <th className="py-2 pr-3 font-medium">Student</th>
@@ -147,7 +210,7 @@ export default function Applications() {
                   <td colSpan={7} className="py-6 text-ink-soft">No applications match these filters.</td>
                 </tr>
               )}
-              {rows.map((a) => (
+              {pagedRows.map((a) => (
                 <tr key={a.id} className={`border-t border-mist-deep cursor-pointer ${openId === a.id ? 'bg-saffron-soft' : 'hover:bg-mist'}`} onClick={() => setOpenId(a.id)}>
                   <td className="py-2.5 pr-2" onClick={(e) => e.stopPropagation()}>
                     <input
@@ -188,6 +251,32 @@ export default function Applications() {
               ))}
             </tbody>
           </table>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between py-4 border-t border-mist-deep small font-medium">
+              <span className="text-ink-soft num">
+                Showing {startIdx + 1}–{endIdx} of {rows.length} applications
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="btn btn-quiet !min-h-[32px] !py-1 !px-3 disabled:opacity-30"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  ← Prev
+                </button>
+                <span className="num px-2">
+                  Page {safePage} of {totalPages}
+                </span>
+                <button
+                  className="btn btn-quiet !min-h-[32px] !py-1 !px-3 disabled:opacity-30"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {open ? <Detail key={open.id} app={open} onClose={() => setOpenId(null)} onChanged={reload} /> : <p className="bg-mist p-6 hidden xl:block">Pick an application to see the student, the resume, the task and the interview slot.</p>}
       </div>
