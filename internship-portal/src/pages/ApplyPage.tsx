@@ -118,7 +118,7 @@ export default function ApplyPage() {
     if (!/^[0-9A-Za-z]{8,14}$/.test(draft.prn.replace(/\s/g, ''))) e.prn = 'Enter your PRN: 8 to 14 letters or digits.';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft.email.trim())) e.email = 'Enter a valid email address.';
     if (!/^[6-9]\d{9}$/.test(phone)) e.phone = 'Enter a 10-digit mobile number.';
-    if (!draft.school.trim()) e.school = 'Enter your school or faculty.';
+    if (!draft.school.trim()) e.school = 'Choose your school or faculty.';
     if (!draft.programme) e.programme = 'Choose your programme.';
     if (!draft.specialisation.trim()) e.specialisation = 'Enter your specialisation or branch.';
     if (!draft.year_of_study) {
@@ -214,12 +214,7 @@ export default function ApplyPage() {
                 <Text name="prn" label="PRN" value={draft.prn} onChange={(v) => set('prn', v)} error={errors.prn} inputMode="numeric" hint="Your 10-digit MIT-WPU PRN" />
                 <Text name="email" type="email" label="Email" value={draft.email} onChange={(v) => set('email', v)} error={errors.email} autoComplete="email" hint="College or personal; use the one you check" />
                 <Text name="phone" type="tel" label="Mobile (WhatsApp)" value={draft.phone} onChange={(v) => set('phone', v)} error={errors.phone} autoComplete="tel" inputMode="tel" />
-                <Text name="school" label="School / faculty" value={draft.school} onChange={(v) => set('school', v)} error={errors.school} list="schools" />
-                <datalist id="schools">
-                  {SCHOOL_SUGGESTIONS.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
+                <Select name="school" label="School / faculty" value={draft.school} onChange={(v) => set('school', v)} error={errors.school} options={SCHOOL_SUGGESTIONS} />
                 <Select name="programme" label="Programme" value={draft.programme} onChange={(v) => set('programme', v)} error={errors.programme} options={PROGRAMMES as unknown as string[]} />
                 <Text name="specialisation" label="Specialisation / branch" value={draft.specialisation} onChange={(v) => set('specialisation', v)} error={errors.specialisation} hint="For example CSE, Finance, HR, Psychology" />
                 <Select

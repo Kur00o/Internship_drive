@@ -61,31 +61,32 @@ export const SCHOOL_SUGGESTIONS = [
   'School of Health Sciences & Technology',
   'School of Pharmacy',
   'School of Education',
+  'Other',
 ];
 
-export const YEARS_OF_STUDY = ['1st year', '2nd year', '3rd year', '4th year', '5th year', 'Graduated 2026'];
+export const YEARS_OF_STUDY = ['1st year', '2nd year', '3rd year', '4th year', '5th year'];
 
 /**
  * Eligible years of study per programme for internships.
  * Generally the final two years of each degree (e.g. 3rd and 4th for 4-year B.Tech, 2nd and 3rd for 3-year BBA).
  */
 export const PROGRAMME_YEARS: Record<string, string[]> = {
-  'B.Tech': ['3rd year', '4th year', 'Graduated 2026'],
-  BCA: ['2nd year', '3rd year', 'Graduated 2026'],
-  MCA: ['1st year', '2nd year', 'Graduated 2026'],
-  'B.Sc': ['2nd year', '3rd year', 'Graduated 2026'],
-  'M.Sc': ['1st year', '2nd year', 'Graduated 2026'],
-  BA: ['2nd year', '3rd year', 'Graduated 2026'],
-  MA: ['1st year', '2nd year', 'Graduated 2026'],
-  'B.Com': ['2nd year', '3rd year', 'Graduated 2026'],
-  'M.Com': ['1st year', '2nd year', 'Graduated 2026'],
-  BBA: ['2nd year', '3rd year', 'Graduated 2026'],
-  MBA: ['1st year', '2nd year', 'Graduated 2026'],
-  'CA / CMA / CFA / CS': ['2nd year', '3rd year', 'Graduated 2026'],
-  'B.Des': ['3rd year', '4th year', 'Graduated 2026'],
-  Law: ['4th year', '5th year', 'Graduated 2026'],
-  Pharmacy: ['3rd year', '4th year', 'Graduated 2026'],
-  Other: ['1st year', '2nd year', '3rd year', '4th year', '5th year', 'Graduated 2026'],
+  'B.Tech': ['3rd year', '4th year'],
+  BCA: ['2nd year', '3rd year'],
+  MCA: ['1st year', '2nd year'],
+  'B.Sc': ['2nd year', '3rd year'],
+  'M.Sc': ['1st year', '2nd year'],
+  BA: ['2nd year', '3rd year'],
+  MA: ['1st year', '2nd year'],
+  'B.Com': ['2nd year', '3rd year'],
+  'M.Com': ['1st year', '2nd year'],
+  BBA: ['2nd year', '3rd year'],
+  MBA: ['1st year', '2nd year'],
+  'CA / CMA / CFA / CS': ['2nd year', '3rd year'],
+  'B.Des': ['3rd year', '4th year'],
+  Law: ['4th year', '5th year'],
+  Pharmacy: ['3rd year', '4th year'],
+  Other: ['1st year', '2nd year', '3rd year', '4th year', '5th year'],
 };
 
 export function getYearsForProgramme(programme: string): string[] {
