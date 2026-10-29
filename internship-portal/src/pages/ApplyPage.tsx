@@ -8,7 +8,7 @@ import {
   PROFESSIONAL_COURSES,
   PROGRAMMES,
   SCHOOL_SUGGESTIONS,
-  YEARS_OF_STUDY,
+  getYearsForProgramme,
   interviewSlots,
   roleIsOpenTo,
 } from '../lib/content';
@@ -63,6 +63,7 @@ export default function ApplyPage() {
   const chosen = draft.roles.map((c) => byCode.get(c.code)).filter(Boolean) as Role[];
   const needsPortfolio = chosen.some((r) => r.needs_portfolio);
   const slots = interviewSlots(data?.settings.drive_days ?? ['2026-11-02', '2026-11-03']);
+  const yearsOptions = useMemo(() => getYearsForProgramme(draft.programme), [draft.programme]);
   const settings = data?.settings;
   const closed =
     settings && (!settings.applications_open || (settings.applications_close_at && new Date(settings.applications_close_at) < new Date()));
@@ -76,7 +77,16 @@ export default function ApplyPage() {
   }, [byCode.size]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
-    setDraft((d) => ({ ...d, [k]: v }));
+    setDraft((d) => {
+      const next = { ...d, [k]: v };
+      if (k === 'programme') {
+        const allowed = getYearsForProgramme(v as string);
+        if (d.year_of_study && !allowed.includes(d.year_of_study)) {
+          next.year_of_study = '';
+        }
+      }
+      return next;
+    });
     if (errors[k as string]) setErrors((e) => ({ ...e, [k]: undefined }));
   };
 
@@ -111,7 +121,11 @@ export default function ApplyPage() {
     if (!draft.school.trim()) e.school = 'Enter your school or faculty.';
     if (!draft.programme) e.programme = 'Choose your programme.';
     if (!draft.specialisation.trim()) e.specialisation = 'Enter your specialisation or branch.';
-    if (!draft.year_of_study) e.year_of_study = 'Choose your year of study.';
+    if (!draft.year_of_study) {
+      e.year_of_study = 'Choose your year of study.';
+    } else if (draft.programme && !getYearsForProgramme(draft.programme).includes(draft.year_of_study)) {
+      e.year_of_study = `Year not eligible for ${draft.programme}.`;
+    }
     if (!draft.graduation_year) e.graduation_year = 'Choose your graduation year.';
     const cg = Number(draft.cgpa);
     if (draft.cgpa === '' || Number.isNaN(cg) || cg < 0 || cg > 10) e.cgpa = 'CGPA is a number from 0 to 10.';
@@ -130,7 +144,6 @@ export default function ApplyPage() {
     if (draft.linkedin_url.trim() && !URL_RE.test(draft.linkedin_url.trim())) e.linkedin_url = 'Links start with https://';
     if (!draft.available_from) e.available_from = 'Pick the date you can start.';
     if (!draft.office_availability) e.office_availability = 'Choose one.';
-    if (!draft.interview_availability.length) e.interview_availability = 'Pick at least one.';
     if (!draft.consent) e.consent = 'Please accept to submit.';
     return e;
   }
@@ -156,6 +169,7 @@ export default function ApplyPage() {
         prn: draft.prn.replace(/\s/g, ''),
         resume_path: up.path,
         resume_name: up.name,
+        interview_availability: draft.interview_availability.length ? draft.interview_availability : slots,
         roles: draft.roles.map((r) => ({ code: r.code, challenge: r.challenge.trim() || undefined })),
       });
       setResult(res);
@@ -208,7 +222,15 @@ export default function ApplyPage() {
                 </datalist>
                 <Select name="programme" label="Programme" value={draft.programme} onChange={(v) => set('programme', v)} error={errors.programme} options={PROGRAMMES as unknown as string[]} />
                 <Text name="specialisation" label="Specialisation / branch" value={draft.specialisation} onChange={(v) => set('specialisation', v)} error={errors.specialisation} hint="For example CSE, Finance, HR, Psychology" />
-                <Select name="year_of_study" label="Current year of study" value={draft.year_of_study} onChange={(v) => set('year_of_study', v)} error={errors.year_of_study} options={YEARS_OF_STUDY} />
+                <Select
+                  name="year_of_study"
+                  label="Current year of study"
+                  value={draft.year_of_study}
+                  onChange={(v) => set('year_of_study', v)}
+                  error={errors.year_of_study}
+                  options={yearsOptions}
+                  hint={draft.programme ? `Eligible for ${draft.programme}: ${yearsOptions.join(', ')}` : undefined}
+                />
                 <Select name="graduation_year" label="Expected graduation year" value={draft.graduation_year} onChange={(v) => set('graduation_year', v)} error={errors.graduation_year} options={GRAD_YEARS} />
                 <Text name="cgpa" label="Current CGPA" value={draft.cgpa} onChange={(v) => set('cgpa', v)} error={errors.cgpa} inputMode="decimal" hint="Out of 10" />
               </div>
@@ -407,22 +429,7 @@ export default function ApplyPage() {
                 </div>
                 {errors.office_availability && <span className="error-text">{errors.office_availability}</span>}
               </fieldset>
-              <fieldset className="mt-8" data-field="interview_availability">
-                <legend className="label">When can you interview?</legend>
-                <div className="flex flex-wrap gap-3">
-                  {slots.map((s) => (
-                    <Check
-                      key={s}
-                      label={s}
-                      checked={draft.interview_availability.includes(s)}
-                      onChange={(on) => set('interview_availability', on ? [...draft.interview_availability, s] : draft.interview_availability.filter((x) => x !== s))}
-                    />
-                  ))}
-                </div>
-                <span className="hint">{data?.settings.timings_note || 'Timings to be announced'}.</span>
-                {errors.interview_availability && <span className="error-text">{errors.interview_availability}</span>}
-              </fieldset>
-            </Section>
+                          </Section>
 
             <Section title="Declaration" note="Read once; it is short.">
               <div data-field="consent">
@@ -534,14 +541,15 @@ function Text(props: {
   );
 }
 
-function Select(props: { name: string; label: string; value: string; onChange: (v: string) => void; options: string[]; error?: string }) {
+function Select(props: { name: string; label: string; value: string; onChange: (v: string) => void; options: string[]; error?: string; hint?: string }) {
   const id = `f_${props.name}`;
+  const describedBy = [props.hint && `${id}_hint`, props.error && `${id}_err`].filter(Boolean).join(' ') || undefined;
   return (
     <div data-field={props.name}>
       <label htmlFor={id} className="label">
         {props.label}
       </label>
-      <select id={id} className="field" value={props.value} aria-invalid={Boolean(props.error)} aria-describedby={props.error ? `${id}_err` : undefined} onChange={(e) => props.onChange(e.target.value)}>
+      <select id={id} className="field" value={props.value} aria-invalid={Boolean(props.error)} aria-describedby={describedBy} onChange={(e) => props.onChange(e.target.value)}>
         <option value="">Choose…</option>
         {props.options.map((o) => (
           <option key={o} value={o}>
@@ -549,6 +557,11 @@ function Select(props: { name: string; label: string; value: string; onChange: (
           </option>
         ))}
       </select>
+      {props.hint && (
+        <span id={`${id}_hint`} className="hint">
+          {props.hint}
+        </span>
+      )}
       {props.error && (
         <span id={`${id}_err`} className="error-text">
           {props.error}

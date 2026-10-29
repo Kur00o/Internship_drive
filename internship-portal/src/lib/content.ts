@@ -64,6 +64,34 @@ export const SCHOOL_SUGGESTIONS = [
 ];
 
 export const YEARS_OF_STUDY = ['1st year', '2nd year', '3rd year', '4th year', '5th year', 'Graduated 2026'];
+
+/**
+ * Eligible years of study per programme for internships.
+ * Generally the final two years of each degree (e.g. 3rd and 4th for 4-year B.Tech, 2nd and 3rd for 3-year BBA).
+ */
+export const PROGRAMME_YEARS: Record<string, string[]> = {
+  'B.Tech': ['3rd year', '4th year', 'Graduated 2026'],
+  BCA: ['2nd year', '3rd year', 'Graduated 2026'],
+  MCA: ['1st year', '2nd year', 'Graduated 2026'],
+  'B.Sc': ['2nd year', '3rd year', 'Graduated 2026'],
+  'M.Sc': ['1st year', '2nd year', 'Graduated 2026'],
+  BA: ['2nd year', '3rd year', 'Graduated 2026'],
+  MA: ['1st year', '2nd year', 'Graduated 2026'],
+  'B.Com': ['2nd year', '3rd year', 'Graduated 2026'],
+  'M.Com': ['1st year', '2nd year', 'Graduated 2026'],
+  BBA: ['2nd year', '3rd year', 'Graduated 2026'],
+  MBA: ['1st year', '2nd year', 'Graduated 2026'],
+  'CA / CMA / CFA / CS': ['2nd year', '3rd year', 'Graduated 2026'],
+  'B.Des': ['3rd year', '4th year', 'Graduated 2026'],
+  Law: ['4th year', '5th year', 'Graduated 2026'],
+  Pharmacy: ['3rd year', '4th year', 'Graduated 2026'],
+  Other: ['1st year', '2nd year', '3rd year', '4th year', '5th year', 'Graduated 2026'],
+};
+
+export function getYearsForProgramme(programme: string): string[] {
+  if (!programme) return YEARS_OF_STUDY;
+  return PROGRAMME_YEARS[programme] ?? YEARS_OF_STUDY;
+}
 export const GRAD_YEARS = ['2026', '2027', '2028', '2029', '2030', '2031'];
 export const PROFESSIONAL_COURSES = ['CA', 'CMA', 'CFA', 'CS'];
 export const OFFICE_OPTIONS = ['Yes, full-time', 'Yes, part-time', 'Hybrid only', 'Remote only'];
