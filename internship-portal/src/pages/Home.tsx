@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CiiLogo, Masthead, MitWpuLogo, YiLogo } from '../components/Brand';
 import ChapterBar from '../components/ChapterBar';
-import { publicCounts } from '../lib/api';
 import { FAQ, PHOTO_CREDITS, PROGRAMMES, TRACK_BLURB, TRACK_COLOURS, roleIsOpenTo } from '../lib/content';
 import { formatClock, formatDay, plural } from '../lib/format';
 import { useDocumentTitle, usePublicData, useReveal } from '../lib/hooks';
@@ -56,12 +55,7 @@ export default function Home() {
 
 /* ------------------------------------------------------------------ hero */
 function Hero({ data }: { data: PublicData | null }) {
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    publicCounts()
-      .then((c) => setCount(c.applicants))
-      .catch(() => setCount(null));
-  }, []);
+
   const openRoles = data?.roles.filter((r) => r.is_open).length ?? 14;
   const companies = data ? new Set(data.roles.map((r) => r.company_code)).size : 7;
   const closes = data?.settings.applications_close_at;
@@ -93,7 +87,6 @@ function Hero({ data }: { data: PublicData | null }) {
             </a>
           </div>
           <p className="small mt-5 font-medium text-paper/85">
-            {count && count > 0 ? `${plural(count, 'student')} applied so far. ` : ''}
             {closes
               ? `Applications close ${new Date(closes).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.`
               : 'Interview timings will be announced in the WhatsApp group.'}
