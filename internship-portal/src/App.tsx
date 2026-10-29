@@ -34,6 +34,7 @@ export default function App() {
           <Route path="/track" element={<TrackPage />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/organiser/*" element={<Organiser />} />
+          <Route path="/company" element={<CompanyPortal />} />
           <Route path="/company/:token" element={<CompanyPortal />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -14,6 +14,7 @@ Live: https://yi-internship-drive.vercel.app
 | `/track` | Students | Status of each application and the interview slot (PRN + email + mobile) |
 | `/schedule` | Everyone | Which company interviews on which day, time and room |
 | `/organiser` | Core team | Overview, applications (screening, status, resume, history, CSV/company exports), schedule (sessions + automatic slot planning), interview-day board (check-in / done / no-show, live), companies & roles, settings |
+| `/company` | Each company | Sign in with the company's email + password; same dashboard as the private link |
 | `/company/:token` | Each company | Private dashboard: only that company's applicants, shortlist / decide / rate, resumes, interview list |
 
 Stack: Vite + React 19 + TypeScript + Tailwind v4, Supabase (Postgres, Auth, Storage, Realtime), one Vercel Function (`api/resume.ts`) for company resume links. Type is Jost, self-hosted.
@@ -25,6 +26,12 @@ Project: `supabase-cyan-magnet` (`bvogrxgqddabtckoinbo`, Mumbai), created by the
 1. `20261028_001_schema.sql` – tables, Operations Plan status values and reason codes, triggers (status log, interview → status), row level security.
 2. `20261028_002_functions.sql` – `submit_application`, `track_application`, `public_counts`, company portal RPCs, private `resumes` bucket and its policies.
 3. `20261028_003_seed.sql` – the 9 companies and 14 roles from the JD folder plus the companies' answers of 28 Oct.
+
+4. `20261028_004_hardening.sql` – function grants.
+5. `20261029_005_slots.sql` – attendance, venues, slot rules (`drive_settings.slot_minutes` etc.) and a unique panel+time index. **Run this before using the Attendance and Slots tabs.**
+6. `20261029_006_company_auth.sql` – company logins: `company_users` (email → company), `current_company_code()`, and `company_private.link_enabled` to switch a private link off.
+
+Interview slots: on the organiser desk, *Attendance* takes a student ID (`STU-0012` or PRN) and, in arrival order, gives that student one slot per company they applied to (30 min slots, 20 min buffer, lunch skipped, all editable under *Slot rules*). Each student's companies are ordered so they finish earliest, which rotates students across companies without gaps. *Slots & venues* shows every slot by company; drag a student to another time (drop on a full slot to swap) and drag a venue onto a company to place it.
 
 Security model:
 
@@ -39,7 +46,9 @@ Security model:
 
 ### Give a company its dashboard
 
-Organiser desk → Companies & roles → **Copy** the private link and send it to that company's contact only. **New link** rotates it.
+Login: Supabase → Authentication → Users → add the contact's email + password (Auto Confirm), then organiser desk → Companies & roles → that company → **Company logins** → add the same email. They sign in at `/company`. Untick "Private link also works" to make the login the only way in.
+
+Private link: organiser desk → Companies & roles → **Copy** the private link and send it to that company's contact only. **New link** rotates it.
 
 ## Environment
 
