@@ -379,7 +379,7 @@ function ApplicantRow({
               {s.prior_experience ? `. Prior: ${s.prior_experience}` : ''}
             </Info>
             <Info label="Availability">
-              From {s.available_from ?? '—'} · office: {s.office_availability ?? '—'} · interviews: {s.interview_availability.join(', ') || '—'}
+              From {s.available_from ?? '—'} · office: {s.office_availability ?? '—'}
             </Info>
             <div className="flex flex-wrap gap-3">
               {s.has_resume && (

@@ -400,7 +400,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
         <Row label="Role">{role?.title} · {companyBy.get(role?.company_code ?? '')?.short_name} · choice {app.preference}</Row>
         <Row label="Programme">{s.programme} · {s.specialisation} · {s.year_of_study} · graduating {s.graduation_year} · CGPA {s.cgpa ?? '—'}{s.professional_courses.length ? ` · ${s.professional_courses.join(', ')}` : ''}</Row>
         <Row label="School">{s.school}</Row>
-        <Row label="Availability">From {s.available_from ?? '—'} · {s.office_availability} · {s.interview_availability.join(', ')}</Row>
+        <Row label="Availability">From {s.available_from ?? '—'} · {s.office_availability}</Row>
         {s.prior_experience && <Row label="Prior experience">{s.prior_experience}</Row>}
         <Row label="Why they fit">{app.why_fit || <span className="text-ink-soft">Answered on their first choice</span>}</Row>
         {app.challenge_response && (
