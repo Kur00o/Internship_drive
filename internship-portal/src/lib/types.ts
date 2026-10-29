@@ -227,6 +227,7 @@ export interface CompanyPrivate {
   contact_email: string | null;
   coordinator: string | null;
   share_unscreened: boolean;
+  link_enabled: boolean;
   notes: string | null;
 }
 

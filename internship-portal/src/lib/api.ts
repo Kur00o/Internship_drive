@@ -115,6 +115,22 @@ export function companyResumeUrl(token: string, applicationId: string) {
   return `/api/resume?t=${encodeURIComponent(token)}&a=${encodeURIComponent(applicationId)}`;
 }
 
+// Signed-in company: the browser cannot attach the session to a plain link, so ask for the signed URL.
+export async function companyResumeSignedUrl(applicationId: string): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  const jwt = data.session?.access_token;
+  if (!jwt) throw new Error('Please sign in again.');
+  const res = await fetch(`/api/resume?json=1&a=${encodeURIComponent(applicationId)}`, { headers: { Authorization: `Bearer ${jwt}` } });
+  if (!res.ok) throw new Error(await res.text());
+  return ((await res.json()) as { url: string }).url;
+}
+
+export async function myCompanyCode(): Promise<string | null> {
+  const { data, error } = await supabase.rpc('current_company_code');
+  if (error) return null;
+  return (data as string | null) ?? null;
+}
+
 // ---------------------------------------------------------------- organisers
 export async function amIOrganizer(): Promise<boolean> {
   const { data, error } = await supabase.rpc('is_organizer');
@@ -257,6 +273,24 @@ export async function rotateCompanyToken(code: string) {
   const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   await saveCompanyPrivate(code, { access_token: token });
   return token;
+}
+
+export interface CompanyUser { email: string; company_code: string; name: string | null; added_at: string }
+
+export async function loadCompanyUsers(): Promise<CompanyUser[]> {
+  const { data, error } = await supabase.from('company_users').select('*').order('company_code').order('email');
+  if (error) fail(error);
+  return data as CompanyUser[];
+}
+
+export async function addCompanyUser(companyCode: string, email: string, name: string) {
+  const { error } = await supabase.from('company_users').insert({ company_code: companyCode, email: email.trim().toLowerCase(), name: name.trim() || null });
+  if (error) fail(error);
+}
+
+export async function removeCompanyUser(email: string) {
+  const { error } = await supabase.from('company_users').delete().eq('email', email);
+  if (error) fail(error);
 }
 
 export async function loadOrganizers(): Promise<{ email: string; name: string | null; added_at: string }[]> {
