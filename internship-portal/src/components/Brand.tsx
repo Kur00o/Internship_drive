@@ -53,8 +53,6 @@ export function SiteFooter() {
           <Link to="/#roles" className="link">Roles</Link>
           <Link to="/schedule" className="link">Schedule</Link>
           <Link to="/track" className="link">Track my application</Link>
-          <Link to="/organiser" className="link">Organiser login</Link>
-          <Link to="/company" className="link">Company login</Link>
         </nav>
       </div>
     </footer>

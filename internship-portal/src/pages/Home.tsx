@@ -551,8 +551,6 @@ function HomeFooter({ data }: { data: PublicData | null }) {
           <nav className="flex flex-wrap gap-x-5 gap-y-1" aria-label="Footer">
             <Link to="/track" className="link">Track my application</Link>
             <Link to="/schedule" className="link">Schedule</Link>
-            <Link to="/organiser" className="link">Organisers</Link>
-            <Link to="/company" className="link">Companies</Link>
           </nav>
           <details className="md:text-center">
             <summary className="cursor-pointer underline underline-offset-4">Photo credits</summary>
