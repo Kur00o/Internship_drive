@@ -30,7 +30,7 @@ export default function RolePage() {
     ['Duration', role.duration],
     ['Work mode', role.work_mode],
     ['Location', role.location],
-    ['Openings', role.openings ? String(role.openings) : 'To be confirmed'],
+    ['Openings', 'TBD'],
     ['Joining', role.joining || data.settings.joining],
     ['Selection', `${data.settings.selection_process} · about ${role.interview_minutes} min`],
   ];

@@ -84,7 +84,7 @@ export default function Overview() {
                             <span className="absolute inset-y-0 left-1.5 small font-bold num leading-5">{ra.length}</span>
                           </div>
                         </td>
-                        <td className="py-2.5 px-2 text-right num">{r.openings ?? '—'}</td>
+                        <td className="py-2.5 px-2 text-right num">{r.openings ?? 'TBD'}</td>
                         <td className="py-2.5 px-2 text-right num">{c(PIPE.screening)}</td>
                         <td className="py-2.5 px-2 text-right num">{c(PIPE.shared)}</td>
                         <td className="py-2.5 px-2 text-right num">{c(PIPE.interview)}</td>

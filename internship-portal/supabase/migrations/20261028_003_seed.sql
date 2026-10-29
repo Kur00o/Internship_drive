@@ -30,11 +30,7 @@ insert into public.companies (code, name, short_name, about, website, office_loc
  'https://www.parsbem.com', 'Gera''s Imperium Rise, Hinjewadi Phase 2, Pune', 'Work from office · 6 days a week', 'https://drive.google.com/drive/folders/1efQjdqyqjvK4j9CRYdRj-Y2fXS-IvtuP', 'published', 60),
 ('STC', 'Studio Coriander', 'Studio Coriander',
  'A Pune studio for branding, advertising, digital marketing and film production.',
- 'https://studiocoriander.com', 'Pune', 'Full-time', 'https://drive.google.com/drive/folders/1G5gfJv52ayRayzAZJkwkFAOxD3D74dag', 'published', 70),
-('ISC', 'Indian Souvenir Company', 'Indian Souvenir Co.',
- 'Job description not shared yet.', null, null, null, 'https://drive.google.com/drive/folders/1G0edu-dKqGtdKKSL3RzIgoPYLbpWhca1', 'pending', 80),
-('INP', 'Innoips', 'Innoips',
- 'Job description not shared yet.', null, null, null, 'https://drive.google.com/drive/folders/1RgzqAmmP7THOeKQo9wUuvBrR07TVJ0eg', 'pending', 90)
+ 'https://studiocoriander.com', 'Pune', 'Full-time', 'https://drive.google.com/drive/folders/1G5gfJv52ayRayzAZJkwkFAOxD3D74dag', 'published', 70)
 on conflict (code) do nothing;
 
 insert into public.roles (code, company_code, title, track, tags, programmes, summary, about, responsibilities, requirements, good_to_have, perks, eligibility, openings, stipend, duration, work_mode, location, joining, needs_portfolio, portfolio_hint, challenge, jd_url, interview_minutes, sort_order) values
