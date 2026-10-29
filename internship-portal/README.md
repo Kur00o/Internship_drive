@@ -26,6 +26,11 @@ Project: `supabase-cyan-magnet` (`bvogrxgqddabtckoinbo`, Mumbai), created by the
 2. `20261028_002_functions.sql` – `submit_application`, `track_application`, `public_counts`, company portal RPCs, private `resumes` bucket and its policies.
 3. `20261028_003_seed.sql` – the 9 companies and 14 roles from the JD folder plus the companies' answers of 28 Oct.
 
+4. `20261028_004_hardening.sql` – function grants.
+5. `20261029_005_slots.sql` – attendance, venues, slot rules (`drive_settings.slot_minutes` etc.) and a unique panel+time index. **Run this before using the Attendance and Slots tabs.**
+
+Interview slots: on the organiser desk, *Attendance* takes a student ID (`STU-0012` or PRN) and, in arrival order, gives that student one slot per company they applied to (30 min slots, 20 min buffer, lunch skipped, all editable under *Slot rules*). Each student's companies are ordered so they finish earliest, which rotates students across companies without gaps. *Slots & venues* shows every slot by company; drag a student to another time (drop on a full slot to swap) and drag a venue onto a company to place it.
+
 Security model:
 
 - Anyone can read companies, roles, sessions and settings. Nobody anonymous can read or write applicants or applications directly; students only go through `submit_application` and `track_application` (PRN + email + mobile must all match).

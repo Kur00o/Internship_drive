@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import type {
   Application,
   ApplicationPayload,
+  Attendance,
   Company,
   CompanyPrivate,
   DriveSession,
@@ -13,6 +14,7 @@ import type {
   StatusLogEntry,
   SubmitResult,
   TrackResult,
+  Venue,
 } from './types';
 
 function fail(error: { message: string } | null): never {
@@ -170,6 +172,49 @@ export async function createInterviews(rows: Omit<Interview, 'id' | 'interview_c
 
 export async function updateInterview(id: string, patch: Partial<Interview>) {
   const { error } = await supabase.from('interviews').update(patch).eq('id', id);
+  if (error) fail(error);
+}
+
+export async function cancelInterviews(ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await supabase.from('interviews').update({ cancelled: true }).in('id', ids);
+  if (error) fail(error);
+}
+
+export async function loadVenues(): Promise<Venue[]> {
+  const { data, error } = await supabase.from('venues').select('*').order('sort_order').order('name');
+  if (error) fail(error);
+  return data as Venue[];
+}
+
+export async function addVenue(name: string, note: string) {
+  const { error } = await supabase.from('venues').insert({ name: name.trim(), note: note.trim() || null });
+  if (error) fail(error.message.includes('duplicate') ? { message: 'That venue already exists.' } : error);
+}
+
+export async function deleteVenue(id: string) {
+  const { error } = await supabase.from('venues').delete().eq('id', id);
+  if (error) fail(error);
+}
+
+export async function loadAttendance(): Promise<Attendance[]> {
+  const { data, error } = await supabase.from('attendance').select('*').order('seq');
+  if (error) fail(error);
+  return data as Attendance[];
+}
+
+export async function markAttendance(applicantId: string, day: string, by: string) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .insert({ applicant_id: applicantId, day, marked_by: by })
+    .select()
+    .single();
+  if (error) fail(error);
+  return data as Attendance;
+}
+
+export async function unmarkAttendance(id: string) {
+  const { error } = await supabase.from('attendance').delete().eq('id', id);
   if (error) fail(error);
 }
 

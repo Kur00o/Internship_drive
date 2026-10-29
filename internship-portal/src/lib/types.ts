@@ -23,7 +23,29 @@ export interface DriveSettings {
   min_duration: string;
   joining: string;
   selection_process: string;
+  slot_minutes: number;
+  buffer_minutes: number;
+  day_start: string;
+  day_end: string;
+  lunch_start: string | null;
+  lunch_end: string | null;
   updated_at?: string;
+}
+
+export interface Venue {
+  id: string;
+  name: string;
+  note: string | null;
+  sort_order: number;
+}
+
+export interface Attendance {
+  id: string;
+  applicant_id: string;
+  day: string;
+  seq: number;
+  marked_at: string;
+  marked_by: string | null;
 }
 
 export interface Company {
