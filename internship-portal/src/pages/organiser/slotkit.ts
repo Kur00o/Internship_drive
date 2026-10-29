@@ -2,7 +2,7 @@ import { windowFor, type Rules, type Taken, type Window } from '../../lib/allot'
 import { isoToIstDate } from '../../lib/format';
 import type { Application, DriveSession, DriveSettings, Role } from '../../lib/types';
 
-export const DEFAULT_RULES: Rules = { slotMin: 30, bufferMin: 20, dayStart: '09:30', dayEnd: '17:00', lunchStart: '13:00', lunchEnd: '14:00' };
+export const DEFAULT_RULES: Rules = { slotMin: 30, bufferMin: 20, dayStart: '11:00', dayEnd: '17:00', lunchStart: '13:00', lunchEnd: '14:00' };
 
 export function rulesFrom(s?: DriveSettings): Rules {
   if (!s || s.slot_minutes == null) return DEFAULT_RULES;

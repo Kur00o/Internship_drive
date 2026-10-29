@@ -4,7 +4,7 @@
 alter table public.drive_settings
   add column if not exists slot_minutes int not null default 30 check (slot_minutes between 5 and 180),
   add column if not exists buffer_minutes int not null default 20 check (buffer_minutes between 0 and 120),
-  add column if not exists day_start time not null default '09:30',
+  add column if not exists day_start time not null default '11:00',
   add column if not exists day_end time not null default '17:00',
   add column if not exists lunch_start time default '13:00',
   add column if not exists lunch_end time default '14:00';
