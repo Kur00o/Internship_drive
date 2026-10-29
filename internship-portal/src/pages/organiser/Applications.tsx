@@ -210,45 +210,56 @@ export default function Applications() {
                   <td colSpan={7} className="py-6 text-ink-soft">No applications match these filters.</td>
                 </tr>
               )}
-              {pagedRows.map((a) => (
-                <tr key={a.id} className={`border-t border-mist-deep cursor-pointer ${openId === a.id ? 'bg-saffron-soft' : 'hover:bg-mist'}`} onClick={() => setOpenId(a.id)}>
-                  <td className="py-2.5 pr-2" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${a.app_code}`}
-                      checked={selected.has(a.id)}
-                      onChange={(e) => {
-                        const s = new Set(selected);
-                        if (e.target.checked) s.add(a.id);
-                        else s.delete(a.id);
-                        setSelected(s);
-                      }}
-                    />
-                  </td>
-                  <td className="py-2.5 pr-3 num small">
-                    <button className="font-medium hover:underline" onClick={() => setOpenId(a.id)}>
-                      {a.app_code}
-                    </button>
-                    <span className="block text-ink-soft">{formatDateTime(a.created_at)}</span>
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <span className="font-medium">{a.applicant?.full_name}</span>
-                    <span className="block small text-ink-soft num">{a.applicant?.prn}</span>
-                  </td>
-                  <td className="py-2.5 pr-3 small">
-                    {a.applicant?.programme} · {a.applicant?.specialisation}
-                    <span className="block text-ink-soft">{a.applicant?.year_of_study} · CGPA {a.applicant?.cgpa ?? '—'}</span>
-                  </td>
-                  <td className="py-2.5 pr-3 small">
-                    <span className="font-medium">{a.role_code}</span> · choice {a.preference}
-                  </td>
-                  <td className="py-2.5 pr-3 small">
-                    <StatusPill status={a.status} />
-                    {a.reason_code && <span className="block text-ink-soft">{a.reason_code}</span>}
-                  </td>
-                  <td className="py-2.5 small">{a.company_decision ?? '—'}</td>
-                </tr>
-              ))}
+              {pagedRows.map((a) => {
+                const r = roleBy.get(a.role_code);
+                const comp = companyBy.get(r?.company_code ?? '');
+                const compName = comp?.short_name ?? comp?.name ?? r?.company_code ?? '—';
+                return (
+                  <tr key={a.id} className={`border-t border-mist-deep cursor-pointer ${openId === a.id ? 'bg-saffron-soft' : 'hover:bg-mist'}`} onClick={() => setOpenId(a.id)}>
+                    <td className="py-2.5 pr-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${a.app_code}`}
+                        checked={selected.has(a.id)}
+                        onChange={(e) => {
+                          const s = new Set(selected);
+                          if (e.target.checked) s.add(a.id);
+                          else s.delete(a.id);
+                          setSelected(s);
+                        }}
+                      />
+                    </td>
+                    <td className="py-2.5 pr-3 num small">
+                      <button className="font-medium hover:underline" onClick={() => setOpenId(a.id)}>
+                        {a.app_code}
+                      </button>
+                      <span className="block text-ink-soft">{formatDateTime(a.created_at)}</span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <span className="font-medium">{a.applicant?.full_name}</span>
+                      <span className="block small text-ink-soft num">{a.applicant?.prn}</span>
+                    </td>
+                    <td className="py-2.5 pr-3 small">
+                      {a.applicant?.programme} · {a.applicant?.specialisation}
+                      <span className="block text-ink-soft">{a.applicant?.year_of_study} · CGPA {a.applicant?.cgpa ?? '—'}</span>
+                    </td>
+                    <td className="py-2.5 pr-3 small">
+                      <span className="font-medium">{a.role_code}</span> · choice {a.preference}
+                      {r?.title && <span className="block text-ink-soft">{r.title}</span>}
+                    </td>
+                    <td className="py-2.5 pr-3 small">
+                      <StatusPill status={a.status} />
+                      {a.reason_code && <span className="block text-ink-soft">{a.reason_code}</span>}
+                    </td>
+                    <td className="py-2.5 small">
+                      <span className="font-medium">{compName}</span>
+                      {a.company_decision && (
+                        <span className="block text-ink-soft">{a.company_decision}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {totalPages > 1 && (
