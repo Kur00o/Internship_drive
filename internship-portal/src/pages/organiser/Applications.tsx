@@ -127,12 +127,12 @@ export default function Applications() {
             <label htmlFor="a_sort_inline" className="small text-ink-soft">Sort:</label>
             <select
               id="a_sort_inline"
-              className="field !min-h-[34px] !py-1 !px-2.5 w-auto text-sm"
+              className="field !min-h-[34px] !py-1 !pl-2.5 !pr-8 w-auto text-sm cursor-pointer"
               value={sort}
               onChange={(e) => setParam('sort', e.target.value)}
             >
-              <option value="newest">Newest first (latest)</option>
-              <option value="oldest">Oldest first (earliest)</option>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
             </select>
           </div>
           {totalPages > 1 && (
