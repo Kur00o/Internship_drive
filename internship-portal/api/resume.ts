@@ -1,10 +1,12 @@
-// Vercel Function: GET /api/resume?t=<company token>&a=<application id>
-// Checks that the application belongs to the company behind the private link,
+// Vercel Function: GET /api/resume?a=<application id>[&t=<company token>][&json=1]
+// Checks that the application belongs to the company behind the private link
+// (t) or the signed-in company user (Authorization: Bearer <session JWT>),
 // then redirects to a 10-minute signed URL for the resume in the private bucket.
 // Uses the service key that the Vercel ↔ Supabase integration provides; it never
 // reaches the browser.
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://bvogrxgqddabtckoinbo.supabase.co';
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_xpsUJb93dkhJXtA0SG2uDA_PUArU30f';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
 
 function headers(): Record<string, string> {
@@ -23,12 +25,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get('t') || '';
   const app = url.searchParams.get('a') || '';
-  if (token.length < 24 || !/^[0-9a-f-]{36}$/i.test(app)) return text(400, 'Bad resume link.');
+  const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!/^[0-9a-f-]{36}$/i.test(app) || (!jwt && token.length < 24)) return text(400, 'Bad resume link.');
 
+  // Logged-in companies: run the check as that user (blank token = "my login").
   const rpc = await fetch(`${SUPABASE_URL}/rest/v1/rpc/company_resume_path`, {
     method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ p_token: token, p_application: app }),
+    headers: jwt ? { apikey: ANON_KEY, Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' } : headers(),
+    body: JSON.stringify({ p_token: jwt ? '' : token, p_application: app }),
   });
   if (!rpc.ok) return text(502, 'Could not check this link.');
   const path = (await rpc.json()) as string | null;
@@ -42,6 +46,11 @@ export async function GET(request: Request) {
   });
   if (!sign.ok) return text(502, 'Could not open the resume.');
   const { signedURL } = (await sign.json()) as { signedURL: string };
+  if (url.searchParams.get('json')) {
+    return new Response(JSON.stringify({ url: `${SUPABASE_URL}/storage/v1${signedURL}` }), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  }
   return new Response(null, {
     status: 302,
     headers: { Location: `${SUPABASE_URL}/storage/v1${signedURL}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 import { YiLogo } from '../components/Brand';
 import Linkified from '../components/Linkified';
-import { companyResumeUrl, loadCompanyPortal, setCompanyDecision } from '../lib/api';
+import { companyResumeSignedUrl, companyResumeUrl, loadCompanyPortal, setCompanyDecision } from '../lib/api';
 import { downloadCsv, formatDateTime, formatDay, formatTime, isoToIstDate, plural } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
 import type { PortalApplication, PortalData } from '../lib/types';
@@ -11,8 +13,60 @@ const AFTER_INTERVIEW = ['Interviewed', 'No-show', 'Selected', 'Waitlisted', 'No
 
 type View = 'all' | 'review' | 'shortlisted' | 'interviews' | 'decided';
 
+// /company/:token  -> private link (as before)
+// /company         -> company login; the session decides which company (blank token)
 export default function CompanyPortal() {
   const { token = '' } = useParams();
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  useEffect(() => {
+    if (token) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => data.subscription.unsubscribe();
+  }, [token]);
+
+  if (token) return <Dashboard token={token} />;
+  if (session === undefined) return <main className="frame py-24 lead">Loading…</main>;
+  if (!session) return <CompanyLogin />;
+  return <Dashboard token="" />;
+}
+
+function CompanyLogin() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  useDocumentTitle('Company sign in · Internship Drive 2026');
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setErr('');
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) setErr(error.message === 'Invalid login credentials' ? 'That email and password do not match a company account.' : error.message);
+    setBusy(false);
+  }
+  return (
+    <main className="frame py-16 min-h-svh bg-paper">
+      <YiLogo className="h-14 w-auto" />
+      <h1 className="head mt-10">Company sign in</h1>
+      <form onSubmit={submit} className="grid gap-5 w-full max-w-md mt-6">
+        <div>
+          <label htmlFor="c_email" className="label">Email</label>
+          <input id="c_email" type="email" className="field" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
+        </div>
+        <div>
+          <label htmlFor="c_pw" className="label">Password</label>
+          <input id="c_pw" type="password" className="field" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+        </div>
+        <button className="btn btn-ink" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        {err && <p role="alert" className="error-text">{err}</p>}
+        <p className="small text-ink-soft">Use the email the Yi team registered for your company. Don’t have a login? Ask the Yi coordinator.</p>
+      </form>
+    </main>
+  );
+}
+
+function Dashboard({ token }: { token: string }) {
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState('');
   const [role, setRole] = useState('');
@@ -56,8 +110,9 @@ export default function CompanyPortal() {
     return (
       <main className="frame py-24 min-h-svh bg-paper">
         <YiLogo className="h-14 w-auto" />
-        <h1 className="head mt-10">This link does not open a dashboard.</h1>
-        <p className="lead mt-4 max-w-[50ch]">{error}</p>
+        <h1 className="head mt-10">{token ? 'This link does not open a dashboard.' : 'This account has no company dashboard.'}</h1>
+        <p className="lead mt-4 max-w-[50ch]">{token ? error : 'It is not registered for any company. Ask the Yi team to add your email.'}</p>
+        {!token && <button className="btn btn-ink mt-6" onClick={() => supabase.auth.signOut()}>Sign out</button>}
       </main>
     );
   }
@@ -112,7 +167,11 @@ export default function CompanyPortal() {
             </p>
           </div>
         </div>
-        <p className="small text-paper/80 max-w-[44ch]">Private link for your team. Please don’t forward it outside the people interviewing.</p>
+        {token ? (
+          <p className="small text-paper/80 max-w-[44ch]">Private link for your team. Please don’t forward it outside the people interviewing.</p>
+        ) : (
+          <button className="btn btn-paper" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        )}
       </header>
 
       <main className="frame py-8 md:py-10">
@@ -253,6 +312,18 @@ function ApplicantRow({
   const after = AFTER_INTERVIEW.includes(app.status);
   const s = app.student;
 
+  async function openSessionResume(e: React.MouseEvent) {
+    e.preventDefault();
+    const win = window.open('', '_blank'); // opened first so the popup blocker allows it
+    try {
+      const url = await companyResumeSignedUrl(app.id);
+      if (win) win.location.href = url;
+    } catch (er) {
+      win?.close();
+      setErr((er as Error).message);
+    }
+  }
+
   async function decide(decision: string | null) {
     setBusy(decision ?? 'save');
     setErr('');
@@ -312,7 +383,13 @@ function ApplicantRow({
             </Info>
             <div className="flex flex-wrap gap-3">
               {s.has_resume && (
-                <a className="btn btn-ink" href={companyResumeUrl(token, app.id)} target="_blank" rel="noreferrer">
+                <a
+                  className="btn btn-ink"
+                  href={token ? companyResumeUrl(token, app.id) : '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={token ? undefined : openSessionResume}
+                >
                   Open resume
                 </a>
               )}

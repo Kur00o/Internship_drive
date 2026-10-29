@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import type {
   Application,
   ApplicationPayload,
+  Attendance,
   Company,
   CompanyPrivate,
   DriveSession,
@@ -13,6 +14,7 @@ import type {
   StatusLogEntry,
   SubmitResult,
   TrackResult,
+  Venue,
 } from './types';
 
 function fail(error: { message: string } | null): never {
@@ -113,6 +115,22 @@ export function companyResumeUrl(token: string, applicationId: string) {
   return `/api/resume?t=${encodeURIComponent(token)}&a=${encodeURIComponent(applicationId)}`;
 }
 
+// Signed-in company: the browser cannot attach the session to a plain link, so ask for the signed URL.
+export async function companyResumeSignedUrl(applicationId: string): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  const jwt = data.session?.access_token;
+  if (!jwt) throw new Error('Please sign in again.');
+  const res = await fetch(`/api/resume?json=1&a=${encodeURIComponent(applicationId)}`, { headers: { Authorization: `Bearer ${jwt}` } });
+  if (!res.ok) throw new Error(await res.text());
+  return ((await res.json()) as { url: string }).url;
+}
+
+export async function myCompanyCode(): Promise<string | null> {
+  const { data, error } = await supabase.rpc('current_company_code');
+  if (error) return null;
+  return (data as string | null) ?? null;
+}
+
 // ---------------------------------------------------------------- organisers
 export async function amIOrganizer(): Promise<boolean> {
   const { data, error } = await supabase.rpc('is_organizer');
@@ -173,6 +191,49 @@ export async function updateInterview(id: string, patch: Partial<Interview>) {
   if (error) fail(error);
 }
 
+export async function cancelInterviews(ids: string[]) {
+  if (!ids.length) return;
+  const { error } = await supabase.from('interviews').update({ cancelled: true }).in('id', ids);
+  if (error) fail(error);
+}
+
+export async function loadVenues(): Promise<Venue[]> {
+  const { data, error } = await supabase.from('venues').select('*').order('sort_order').order('name');
+  if (error) fail(error);
+  return data as Venue[];
+}
+
+export async function addVenue(name: string, note: string) {
+  const { error } = await supabase.from('venues').insert({ name: name.trim(), note: note.trim() || null });
+  if (error) fail(error.message.includes('duplicate') ? { message: 'That venue already exists.' } : error);
+}
+
+export async function deleteVenue(id: string) {
+  const { error } = await supabase.from('venues').delete().eq('id', id);
+  if (error) fail(error);
+}
+
+export async function loadAttendance(): Promise<Attendance[]> {
+  const { data, error } = await supabase.from('attendance').select('*').order('seq');
+  if (error) fail(error);
+  return data as Attendance[];
+}
+
+export async function markAttendance(applicantId: string, day: string, by: string) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .insert({ applicant_id: applicantId, day, marked_by: by })
+    .select()
+    .single();
+  if (error) fail(error);
+  return data as Attendance;
+}
+
+export async function unmarkAttendance(id: string) {
+  const { error } = await supabase.from('attendance').delete().eq('id', id);
+  if (error) fail(error);
+}
+
 export async function saveSession(session: Partial<DriveSession> & { company_code: string; day: string }) {
   const q = session.id
     ? supabase.from('drive_sessions').update(session).eq('id', session.id)
@@ -212,6 +273,24 @@ export async function rotateCompanyToken(code: string) {
   const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   await saveCompanyPrivate(code, { access_token: token });
   return token;
+}
+
+export interface CompanyUser { email: string; company_code: string; name: string | null; added_at: string }
+
+export async function loadCompanyUsers(): Promise<CompanyUser[]> {
+  const { data, error } = await supabase.from('company_users').select('*').order('company_code').order('email');
+  if (error) fail(error);
+  return data as CompanyUser[];
+}
+
+export async function addCompanyUser(companyCode: string, email: string, name: string) {
+  const { error } = await supabase.from('company_users').insert({ company_code: companyCode, email: email.trim().toLowerCase(), name: name.trim() || null });
+  if (error) fail(error);
+}
+
+export async function removeCompanyUser(email: string) {
+  const { error } = await supabase.from('company_users').delete().eq('email', email);
+  if (error) fail(error);
 }
 
 export async function loadOrganizers(): Promise<{ email: string; name: string | null; added_at: string }[]> {

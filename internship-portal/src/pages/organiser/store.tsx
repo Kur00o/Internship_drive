@@ -1,18 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { loadApplications, loadCompanyPrivate, loadPublicData } from '../../lib/api';
+import { loadApplications, loadAttendance, loadCompanyPrivate, loadPublicData, loadVenues } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
-import type { Application, Company, CompanyPrivate, PublicData, Role } from '../../lib/types';
+import type { Application, Attendance, Company, CompanyPrivate, PublicData, Role, Venue } from '../../lib/types';
 
 interface Store {
   pub: PublicData | null;
   apps: Application[];
   priv: CompanyPrivate[];
+  venues: Venue[];
+  attendance: Attendance[];
   loading: boolean;
   error: string;
   reload: () => Promise<void>;
   reloadPublic: () => Promise<void>;
   setApps: React.Dispatch<React.SetStateAction<Application[]>>;
   setPriv: React.Dispatch<React.SetStateAction<CompanyPrivate[]>>;
+  setVenues: React.Dispatch<React.SetStateAction<Venue[]>>;
+  setAttendance: React.Dispatch<React.SetStateAction<Attendance[]>>;
   roleBy: Map<string, Role>;
   companyBy: Map<string, Company>;
 }
@@ -23,6 +27,8 @@ export function OrganiserStore({ children }: { children: React.ReactNode }) {
   const [pub, setPub] = useState<PublicData | null>(null);
   const [apps, setApps] = useState<Application[]>([]);
   const [priv, setPriv] = useState<CompanyPrivate[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -33,10 +39,19 @@ export function OrganiserStore({ children }: { children: React.ReactNode }) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, a, c] = await Promise.all([loadPublicData(true), loadApplications(), loadCompanyPrivate()]);
+      // venues/attendance need migration 005; the rest of the desk works without it
+      const [p, a, c, v, at] = await Promise.all([
+        loadPublicData(true),
+        loadApplications(),
+        loadCompanyPrivate(),
+        loadVenues().catch(() => [] as Venue[]),
+        loadAttendance().catch(() => [] as Attendance[]),
+      ]);
       setPub(p);
       setApps(a);
       setPriv(c);
+      setVenues(v);
+      setAttendance(at);
       setError('');
     } catch (e) {
       setError((e as Error).message);
@@ -64,6 +79,7 @@ export function OrganiserStore({ children }: { children: React.ReactNode }) {
       .channel('organiser-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'interviews' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => loadAttendance().then(setAttendance).catch(() => undefined))
       .subscribe();
     return () => {
       clearTimeout(t);
@@ -75,7 +91,7 @@ export function OrganiserStore({ children }: { children: React.ReactNode }) {
   const companyBy = useMemo(() => new Map((pub?.companies ?? []).map((c) => [c.code, c])), [pub]);
 
   return (
-    <Ctx.Provider value={{ pub, apps, priv, loading, error, reload, reloadPublic, setApps, setPriv, roleBy, companyBy }}>
+    <Ctx.Provider value={{ pub, apps, priv, venues, attendance, loading, error, reload, reloadPublic, setApps, setPriv, setVenues, setAttendance, roleBy, companyBy }}>
       {children}
     </Ctx.Provider>
   );

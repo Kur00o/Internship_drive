@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { rotateCompanyToken, saveCompanyPrivate, saveRole } from '../../lib/api';
+import { useEffect, useState } from 'react';
+import { addCompanyUser, loadCompanyUsers, removeCompanyUser, rotateCompanyToken, saveCompanyPrivate, saveRole, type CompanyUser } from '../../lib/api';
 import { supabase } from '../../lib/supabase';
 import type { Company, CompanyPrivate, Role } from '../../lib/types';
 import { useStore } from './store';
@@ -22,6 +22,54 @@ export default function Companies() {
   );
 }
 
+function CompanyLogins({ code, linkEnabled, onLinkEnabled }: { code: string; linkEnabled: boolean; onLinkEnabled: (v: boolean) => void }) {
+  const [users, setUsers] = useState<CompanyUser[]>([]);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [err, setErr] = useState('');
+  const reload = () => loadCompanyUsers().then((u) => setUsers(u.filter((x) => x.company_code === code))).catch(() => setUsers([]));
+  useEffect(() => {
+    reload();
+  }, [code]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setErr('');
+    try {
+      await addCompanyUser(code, email, name);
+      setEmail('');
+      setName('');
+      await reload();
+    } catch (er) {
+      setErr((er as Error).message);
+    }
+  }
+
+  return (
+    <div className="grid gap-2">
+      <p className="small font-medium">Company logins <span className="text-ink-soft">(sign in at {location.origin}/company)</span></p>
+      {users.map((u) => (
+        <div key={u.email} className="flex flex-wrap items-center gap-3">
+          <span className="font-medium">{u.email}</span>
+          {u.name && <span className="small text-ink-soft">{u.name}</span>}
+          <button className="link small" onClick={() => confirm(`Remove ${u.email}?`) && removeCompanyUser(u.email).then(reload)}>Remove</button>
+        </div>
+      ))}
+      <form onSubmit={add} className="flex flex-wrap gap-2">
+        <input className="field flex-1 min-w-[14rem]" type="email" placeholder="Login email" aria-label="Login email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <input className="field flex-1 min-w-[10rem]" placeholder="Name (optional)" aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="btn btn-ink">Add login</button>
+      </form>
+      <label className="flex items-center gap-2 font-medium">
+        <input type="checkbox" className="size-4 accent-[var(--color-ink)]" checked={linkEnabled} onChange={(e) => onLinkEnabled(e.target.checked)} />
+        Private link also works (untick to require login; then press Save company)
+      </label>
+      {err && <p role="alert" className="error-text">{err}</p>}
+      <p className="small text-ink-soft">Create the same email under Supabase → Authentication → Users (Auto Confirm) and share the password; only listed, confirmed emails can open this dashboard.</p>
+    </div>
+  );
+}
+
 function CompanyCard({ company, priv, roles, count }: { company: Company; priv?: CompanyPrivate; roles: Role[]; count: number }) {
   const { setPriv, reloadPublic } = useStore();
   const [p, setP] = useState<CompanyPrivate | undefined>(priv);
@@ -39,6 +87,7 @@ function CompanyCard({ company, priv, roles, count }: { company: Company; priv?:
         contact_email: p.contact_email || null,
         coordinator: p.coordinator || null,
         share_unscreened: p.share_unscreened,
+        link_enabled: p.link_enabled,
         notes: p.notes || null,
       });
       const { error } = await supabase.from('companies').update({ about: info.about || null, office_location: info.office_location || null, website: info.website || null, jd_status: info.jd_status }).eq('code', company.code);
@@ -80,6 +129,8 @@ function CompanyCard({ company, priv, roles, count }: { company: Company; priv?:
           </div>
         </div>
       )}
+
+      <CompanyLogins code={company.code} linkEnabled={p?.link_enabled ?? true} onLinkEnabled={(v) => setP(p && { ...p, link_enabled: v })} />
 
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
         <Field label="Contact name" value={p?.contact_name ?? ''} onChange={(v) => setP(p && { ...p, contact_name: v })} />
