@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Linkified from '../../components/Linkified';
+import { PROGRAMMES } from '../../lib/content';
 import { createInterviews, loadStatusLog, resumeSignedUrl, updateApplication, updateInterview } from '../../lib/api';
 import { downloadCsv, formatDateTime, formatTime, istToIso } from '../../lib/format';
 import { REASON_CODES, STATUSES, TRACKS, type Application, type StatusLogEntry } from '../../lib/types';
@@ -23,7 +24,21 @@ export default function Applications() {
   const status = params.get('status') ?? '';
   const company = params.get('company') ?? '';
   const track = params.get('track') ?? '';
+  const programme = params.get('programme') ?? '';
   const sort = params.get('sort') ?? 'newest';
+
+  const programmeOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    apps.forEach((a) => {
+      const p = a.applicant?.programme?.trim();
+      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+    });
+    const list = Array.from(new Set([...PROGRAMMES, ...counts.keys()]));
+    return list.map((p) => {
+      const c = counts.get(p) ?? 0;
+      return [p, c > 0 ? `${p} (${c})` : p] as [string, string];
+    });
+  }, [apps]);
   const setParam = (k: string, v: string) => {
     const p = new URLSearchParams(params);
     if (v) p.set(k, v);
@@ -33,7 +48,7 @@ export default function Applications() {
 
   useEffect(() => {
     setPage(1);
-  }, [q, role, status, company, track, sort]);
+  }, [q, role, status, company, track, programme, sort]);
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -43,6 +58,7 @@ export default function Applications() {
       if (status && a.status !== status) return false;
       if (company && r?.company_code !== company) return false;
       if (track && r?.track !== track) return false;
+      if (programme && (a.applicant?.programme ?? '').trim().toLowerCase() !== programme.trim().toLowerCase()) return false;
       if (term) {
         const hay = `${a.app_code} ${a.applicant?.student_code} ${a.applicant?.full_name} ${a.applicant?.prn} ${a.applicant?.email} ${a.applicant?.phone}`.toLowerCase();
         if (!hay.includes(term)) return false;
@@ -55,7 +71,7 @@ export default function Applications() {
       const tB = new Date(b.created_at).getTime();
       return sort === 'oldest' ? tA - tB : tB - tA;
     });
-  }, [apps, roleBy, role, status, company, track, q, sort]);
+  }, [apps, roleBy, role, status, company, track, programme, q, sort]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -109,6 +125,7 @@ export default function Applications() {
           <label htmlFor="a_q" className="label small">Search</label>
           <input id="a_q" className="field" placeholder="Name, PRN, email, phone, APP- or STU- ID" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <Filter id="a_programme" label="Programme" value={programme} onChange={(v) => setParam('programme', v)} options={programmeOptions} />
         <Filter id="a_track" label="Track" value={track} onChange={(v) => setParam('track', v)} options={TRACKS.map((t) => [t, t])} />
         <Filter id="a_company" label="Company" value={company} onChange={(v) => setParam('company', v)} options={(pub?.companies ?? []).filter((c) => c.jd_status === 'published').map((c) => [c.code, c.short_name])} />
         <Filter id="a_role" label="Role" value={role} onChange={(v) => setParam('role', v)} options={(pub?.roles ?? []).map((r) => [r.code, `${r.code} · ${r.title}`])} />
