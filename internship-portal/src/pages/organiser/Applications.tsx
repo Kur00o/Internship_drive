@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Linkified from '../../components/Linkified';
 import { PROGRAMMES } from '../../lib/content';
-import { createInterviews, loadStatusLog, resumeSignedUrl, updateApplication, updateInterview } from '../../lib/api';
+import { createInterviews, loadStatusLog, resumeSignedUrl, updateApplication } from '../../lib/api';
 import { downloadCsv, formatDateTime, formatTime, istToIso } from '../../lib/format';
 import { REASON_CODES, STATUSES, TRACKS, type Application, type StatusLogEntry } from '../../lib/types';
+import { cancelRole } from './reflow';
 import { useStore } from './store';
 
 export default function Applications() {
@@ -480,7 +481,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
             <button
               className="link justify-self-start"
               onClick={async () => {
-                await updateInterview(i.id, { cancelled: true });
+                await cancelRole(apps, roleBy, i);
                 await onChanged();
               }}
             >

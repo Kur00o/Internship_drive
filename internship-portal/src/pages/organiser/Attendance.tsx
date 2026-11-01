@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
-import { allotStudent, type Placed } from '../../lib/allot';
-import { cancelInterviews, createInterviews, loadApplications, loadAttendance, loadStatusLog, markAttendance, saveSettings, unmarkAttendance, updateApplication } from '../../lib/api';
+import type { Placed } from '../../lib/allot';
+import { cancelInterviews, loadApplications, loadAttendance, loadStatusLog, markAttendance, saveSettings, unmarkAttendance, updateApplication } from '../../lib/api';
 import { formatDay, formatTime } from '../../lib/format';
 import { supabase } from '../../lib/supabase';
 import type { Application } from '../../lib/types';
-import { attendsOn, findStudent, liveInterviews, rulesFrom, takenFrom, venueOf, wantsFor, windowsFor } from './slotkit';
+import { applyPlan, planDay } from './reflow';
+import { findStudent, liveInterviews, primaries, rulesFrom, venueOf } from './slotkit';
 import { useStore } from './store';
 
 const todayIst = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -55,58 +56,31 @@ export default function Attendance() {
       present = student.full_name;
 
       // runs for students already present too, so entering the ID again finishes a failed allotment
-      let result: { placed: Placed[]; unplaced: { company: string }[] } = { placed: [], unplaced: [] };
-      let away: string[] = [];
+      const planFor = (list: Application[]) => planDay({ day, apps: list, attendance: [], sessions, roleBy, rules, student: student.id, notBefore: day === todayIst() ? Date.now() : 0 });
+      let plan = planFor(fresh);
       for (let attempt = 0; attempt < 3; attempt++) {
-        const all = wantsFor(fresh, roleBy, student.id);
-        const wants = all.filter((w) => attendsOn(w.company, day, sessions));
-        away = all.filter((w) => !attendsOn(w.company, day, sessions)).map((w) => w.company);
-        const live = liveInterviews(fresh, roleBy, day);
-        const companies = [...new Set(wants.map((w) => w.company))];
-        result = allotStudent({
-          day,
-          rules,
-          windows: windowsFor(day, rules, companies, sessions),
-          taken: takenFrom(live),
-          busy: live.filter((l) => l.app.applicant_id === student.id).map((l) => [new Date(l.iv.starts_at).getTime(), new Date(l.iv.ends_at).getTime()]),
-          wants,
-          notBefore: day === todayIst() ? Date.now() : 0,
-        });
-        if (!result.placed.length) break;
         try {
-          await createInterviews(
-            result.placed.map((p) => {
-              const venue = venueOf(p.company, day, sessions);
-              return {
-                application_id: p.appId,
-                starts_at: new Date(p.start).toISOString(),
-                ends_at: new Date(p.end).toISOString(),
-                reporting_at: new Date(p.start - 30 * 60000).toISOString(),
-                panel: p.panel,
-                mode: 'Campus' as const,
-                room: venue,
-                meet_url: null,
-              };
-            }),
-          );
+          await applyPlan(plan, day, sessions);
           break;
         } catch (err) {
           // someone took the same slot at the same moment: look again
           if (attempt === 2 || !/duplicate|unique/i.test((err as Error).message)) throw err;
           fresh = await loadApplications();
+          plan = planFor(fresh);
         }
       }
       fresh = await loadApplications();
       setApps(fresh);
       setAttendance(await loadAttendance());
-      const slots: Placed[] = liveInterviews(fresh, roleBy, day)
+      const slots: Placed[] = primaries(liveInterviews(fresh, roleBy, day))
         .filter((l) => l.app.applicant_id === student.id)
         .map((l) => ({ company: l.company, appId: l.app.id, start: new Date(l.iv.starts_at).getTime(), end: new Date(l.iv.ends_at).getTime(), panel: l.iv.panel ?? '' }));
       const nameOf = (c: string) => companyBy.get(c)?.short_name ?? c;
-      const full = result.unplaced.map((u) => nameOf(u.company)).join(', ');
-      const elsewhere = away.map(nameOf).join(', ');
+      const full = plan.unplaced.map(nameOf).join(', ');
+      const elsewhere = plan.away.map(nameOf).join(', ');
       const lead = `${student.full_name} is ${already ? 'already ' : ''}marked present`;
       const notes = [
+        plan.links.length > 0 && `${plan.links.length} more role${plan.links.length > 1 ? 's' : ''} at the same company linked to a slot, extended by ${plan.links.length * 15} minutes.`,
         full && `No free slot left at ${full}: add a panel or move a slot.`,
         elsewhere && `${elsewhere} interviews on another day: mark them present that day for a slot there.`,
       ].filter(Boolean);
@@ -150,7 +124,7 @@ export default function Attendance() {
     }
   }
 
-  const dayInterviews = liveInterviews(apps, roleBy, day);
+  const dayInterviews = primaries(liveInterviews(apps, roleBy, day));
 
   return (
     <div className="grid gap-10">
