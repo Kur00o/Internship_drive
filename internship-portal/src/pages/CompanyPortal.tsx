@@ -231,7 +231,7 @@ function Dashboard({ token }: { token: string }) {
 
           <aside className="lg:col-span-4 grid gap-6 content-start">
             <div className="bg-mist p-5">
-              <h2 className="font-bold text-[1.25rem]">Your interview days</h2>
+              <h2 className="font-bold text-[1.25rem]">Your interview day</h2>
               {data.sessions.length ? (
                 <ul className="mt-3 grid gap-2">
                   {data.sessions.map((s) => (

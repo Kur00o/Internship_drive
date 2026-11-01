@@ -43,6 +43,7 @@ export default function Settings() {
         contact_email: s.contact_email || null,
         contact_phone: s.contact_phone || null,
         announcement: s.announcement || null,
+        day_start: s.day_start || pub?.settings.day_start,
       });
       await reloadPublic();
       setMsg('Saved. The public site shows the change on next load.');
@@ -81,6 +82,14 @@ export default function Settings() {
           Announcement (optional)
           <textarea className="field !min-h-[4rem]" rows={2} value={s.announcement ?? ''} onChange={(e) => setS({ ...s, announcement: e.target.value })} />
         </label>
+        <div className="grid gap-2 bg-mist p-4">
+          <h2 className="font-bold text-[1.25rem]">Interview start time</h2>
+          <label className="small grid gap-1 max-w-[12rem]">
+            First interview at every company (IST)
+            <input type="time" className="field" value={s.day_start?.slice(0, 5) ?? ''} onChange={(e) => setS({ ...s, day_start: e.target.value })} />
+          </label>
+          <p className="small text-ink-soft">Students are allotted from this time with no end time, skipping lunch. Slots already given stay as they are.</p>
+        </div>
         <div className="flex items-center gap-4">
           <button className="btn btn-ink" onClick={save}>Save settings</button>
           {msg && <span className="font-medium">{msg}</span>}

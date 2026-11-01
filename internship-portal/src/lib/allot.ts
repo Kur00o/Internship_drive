@@ -15,7 +15,6 @@ export interface Rules {
   slotMin: number;
   bufferMin: number;
   dayStart: string; // HH:MM
-  dayEnd: string;
   lunchStart: string | null;
   lunchEnd: string | null;
 }
@@ -45,15 +44,10 @@ export interface Placed extends Want {
 
 export const panelName = (company: string, n: number) => `${company}-P${n}`;
 
-export function windowFor(day: string, rules: Rules, session?: { starts_at: string | null; ends_at: string | null; panels: number }[]): Window {
-  const timed = (session ?? []).filter((s) => s.starts_at && s.ends_at);
-  const clock = (t: string) => new Date(istToIso(day, t.slice(0, 5))).getTime();
-  if (!timed.length) return { start: clock(rules.dayStart), end: clock(rules.dayEnd), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
-  return {
-    start: Math.min(...timed.map((s) => clock(s.starts_at!))),
-    end: Math.max(...timed.map((s) => clock(s.ends_at!))),
-    panels: Math.max(...timed.map((s) => s.panels)),
-  };
+/** Every company starts at the interview start time and has no end time; its sessions only set the panels. */
+export function windowFor(day: string, rules: Rules, session?: { panels: number }[]): Window {
+  const clock = (t: string) => new Date(istToIso(day, t)).getTime();
+  return { start: clock(rules.dayStart), end: clock('23:59'), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
 }
 
 /** Start times (epoch ms) of every slot in a window. */

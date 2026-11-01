@@ -9,7 +9,7 @@ const BUFFER = 5;
 
 export default function Schedule() {
   const { pub, apps, companyBy, reload, reloadPublic } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [day, setDay] = useState(days[0]);
   const sessions = (pub?.sessions ?? []).filter((s) => s.day === day);
   const companies = (pub?.companies ?? []).filter((c) => c.jd_status === 'published');
@@ -29,7 +29,7 @@ export default function Schedule() {
 
       <section>
         <h1 className="font-bold text-[1.5rem]">Company sessions on {formatDay(day, { weekday: 'long' })}</h1>
-        <p className="mt-1 text-ink-soft">These show on the public schedule. Leave times empty until the company confirms.</p>
+        <p className="mt-1 text-ink-soft">These show on the public schedule. Leave times empty until the company confirms. Attendance allotment uses only the panels here: every company starts at the interview start time in Settings.</p>
         <div className="mt-4 grid gap-3">
           {sessions.map((s) => (
             <SessionEditor key={s.id} session={s} companies={companies.map((c) => [c.code, c.short_name])} onSaved={reloadPublic} />

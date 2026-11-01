@@ -70,10 +70,17 @@ function Hero({ data }: { data: PublicData | null }) {
           </span>
         </h1>
         <p className="lead font-medium mt-8 md:mt-10 rise" style={{ ['--d' as string]: '180ms' }}>
-          Interviews on campus · Mon 2 &amp; Tue 3 November · MIT-WPU, Pune
+          Interviews on campus · Tue 3 November · MIT-WPU, Pune
         </p>
       </div>
       <div className="grid md:grid-cols-12 gap-6 pb-10 pt-12">
+        <div className="md:col-span-6 self-end rise" style={{ ['--d' as string]: '220ms' }}>
+          <p className="float-note bg-saffron text-ink p-5 md:p-6 max-w-[34ch]">
+            <span className="block small font-bold">Date update</span>
+            <span className="block lead font-bold mt-1">All companies interview on Tuesday, 3 November.</span>
+            <span className="block mt-2 font-medium">No interviews on Monday, 2 November.</span>
+          </p>
+        </div>
         <div className="md:col-span-5 lg:col-span-4 md:col-start-8 lg:col-start-9 rise" style={{ ['--d' as string]: '260ms' }}>
           <p>
             {cap(word(openRoles))} roles from {word(companies)} Pune companies across tech, finance, business, HR, psychology and media. One form, up to three roles, interviews only.
@@ -314,16 +321,16 @@ function Places({ data }: { data: PublicData | null }) {
 
 /* ------------------------------------------------------------------ days */
 function Days({ data }: { data: PublicData | null }) {
-  const days = data?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = data?.settings.drive_days ?? ['2026-11-03'];
   const companies = new Map((data?.companies ?? []).map((c) => [c.code, c]));
   const sessions = data?.sessions ?? [];
   return (
     <section id="schedule" data-chapter="green" className="bg-green text-ink frame py-24 md:py-36 scroll-mt-14">
       <div className="grid md:grid-cols-12 gap-x-6 gap-y-12">
         <div className="md:col-span-6">
-          <h2 className="head rise">Two days on campus</h2>
+          <h2 className="head rise">One day on campus</h2>
           <p className="lead mt-6 max-w-[34ch] rise" style={{ ['--d' as string]: '80ms' }}>
-            {data?.settings.timings_note || 'Timings to be announced'}. Each company interviews on one or both days; your own slot shows on the Track page.
+            {data?.settings.timings_note || 'Timings to be announced'}. All companies interview on Tuesday 3 November; your own slot shows on the Track page.
           </p>
           <div className="mt-12 grid sm:grid-cols-2 gap-x-6 gap-y-10">
             {days.map((d, i) => (
@@ -396,7 +403,7 @@ const STAGES = [
   },
   {
     name: 'Interview day',
-    body: 'Interviews only, on 2 and 3 November at MIT-WPU. Your slot, room and reporting time show on the Track page and are shared in the WhatsApp group.',
+    body: 'Interviews only, on Tuesday 3 November at MIT-WPU. Your slot, room and reporting time show on the Track page and are shared in the WhatsApp group.',
     bg: 'var(--color-saffron)',
     ink: 'var(--color-ink)',
   },
@@ -493,7 +500,7 @@ function About({ data }: { data: PublicData | null }) {
           <mark className="hl-saffron">Young Indians (Yi)</mark> is part of the <mark className="hl-green">Confederation of Indian Industry</mark>, a movement for young Indians to converge, lead, co-create and influence the country’s future. Its{' '}
           <mark className="hl-soft">MIT-WPU student chapter</mark> runs this drive so that a student from any school, engineering or design or commerce, can reach Pune’s companies through one form instead of a dozen inboxes. {cap(word(c))} companies have shared{' '}
           <mark className="hl-green">{word(n)} roles</mark>, from React and NestJS internships in <mark className="hl-mist">Bhosari</mark> to financial analysis in <mark className="hl-mist">Baner</mark> and a 100-day creator mission. The team checks every application against its job description, passes it to the company, and runs the interviews on campus on{' '}
-          <mark className="hl-saffron">2 and 3 November</mark>.{' '}
+          <mark className="hl-saffron">Tuesday 3 November</mark>.{' '}
           <a href={wa} target="_blank" rel="noreferrer" className="hl-final">
             Questions? Ask the team on WhatsApp.
           </a>
@@ -535,7 +542,7 @@ function HomeFooter({ data }: { data: PublicData | null }) {
       <div className="flex flex-wrap items-start justify-between gap-6 pt-10">
         <div className="grid gap-1 max-w-[60ch]">
           <p className="font-medium">Young Indians · MIT-WPU Student Chapter</p>
-          <p>Internship Drive 2026 · interviews on 2 and 3 November at MIT-WPU, Pune</p>
+          <p>Internship Drive 2026 · interviews on Tuesday 3 November at MIT-WPU, Pune</p>
           {data?.settings.contact_email && <p>{data.settings.contact_email}</p>}
           {data?.settings.contact_phone && <p>{data.settings.contact_phone}</p>}
         </div>
