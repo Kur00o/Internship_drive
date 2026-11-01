@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { updateInterview } from '../../lib/api';
-import { formatDay, formatTime, isoToIstDate } from '../../lib/format';
+import { formatDay, formatTime } from '../../lib/format';
 import type { Interview } from '../../lib/types';
+import { linkedTo, liveInterviews, primaries } from './slotkit';
 import { useStore } from './store';
 
 export default function DayBoard() {
   const { pub, apps, setApps, roleBy, companyBy } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const [day, setDay] = useState(days.includes(today) ? today : days[0]);
   const [company, setCompany] = useState('');
@@ -16,8 +17,8 @@ export default function DayBoard() {
     return () => clearInterval(t);
   }, []);
 
-  const rows = apps
-    .flatMap((a) => a.interviews.filter((i) => !i.cancelled && isoToIstDate(i.starts_at) === day).map((i) => ({ iv: i, app: a, company: roleBy.get(a.role_code)?.company_code ?? '' })))
+  const live = liveInterviews(apps, roleBy, day);
+  const rows = primaries(live)
     .filter((r) => !company || r.company === company)
     .sort((x, y) => x.iv.starts_at.localeCompare(y.iv.starts_at));
 
@@ -33,9 +34,12 @@ export default function DayBoard() {
   const calling = rows.filter((r) => !r.iv.done && !r.iv.no_show && new Date(r.iv.starts_at).getTime() - now < 30 * 60000 && new Date(r.iv.ends_at).getTime() > now);
 
   async function patch(iv: Interview, p: Partial<Interview>) {
-    setApps((list) => list.map((a) => (a.id === iv.application_id ? { ...a, interviews: a.interviews.map((i) => (i.id === iv.id ? { ...i, ...p } : i)) } : a)));
+    // a slot shared by two roles checks in and finishes as one
+    const row = live.find((l) => l.iv.id === iv.id);
+    const ids = [iv.id, ...(row ? linkedTo(live, row).map((l) => l.iv.id) : [])];
+    setApps((list) => list.map((a) => ({ ...a, interviews: a.interviews.map((i) => (ids.includes(i.id) ? { ...i, ...p } : i)) })));
     try {
-      await updateInterview(iv.id, p);
+      await Promise.all(ids.map((id) => updateInterview(id, p)));
     } catch (e) {
       alert((e as Error).message);
     }
@@ -115,7 +119,7 @@ export default function DayBoard() {
                   <span className="font-medium">{app.applicant.full_name}</span>
                   <a href={`tel:${app.applicant.phone}`} className="block small num link">{app.applicant.phone}</a>
                 </td>
-                <td className="py-2.5 pr-3 small">{app.role_code}</td>
+                <td className="py-2.5 pr-3 small">{[app.role_code, ...linkedTo(live, { iv, app, company: roleBy.get(app.role_code)?.company_code ?? '' }).map((l) => l.app.role_code)].join(', ')}</td>
                 <td className="py-2.5 pr-3 small">{iv.panel ?? '—'} · {iv.mode === 'Online' ? 'Online' : iv.room || 'room TBA'}</td>
                 <td className="py-2.5">
                   <div className="flex flex-wrap gap-2 items-center">

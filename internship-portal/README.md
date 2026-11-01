@@ -1,6 +1,6 @@
 # Yi MIT-WPU Internship Drive 2026
 
-The application site and organiser desk for the Young Indians (Yi) MIT-WPU student chapter's internship drive: 14 roles from 7 Pune companies, interviews on campus on **Mon 2 and Tue 3 November 2026**.
+The application site and organiser desk for the Young Indians (Yi) MIT-WPU student chapter's internship drive: 14 roles from 7 Pune companies, interviews on campus on **Tuesday 3 November 2026**.
 
 Live: https://yi-internship-drive.vercel.app
 
@@ -8,7 +8,7 @@ Live: https://yi-internship-drive.vercel.app
 
 | Route | Who | What |
 | --- | --- | --- |
-| `/` | Students | Roles by track with an "I study…" filter, where the offices are, how selection works, the two interview days, FAQ from the company answers |
+| `/` | Students | Roles by track with an "I study…" filter, where the offices are, how selection works, the interview day, FAQ from the company answers |
 | `/roles/:code` | Students | Full JD for one role (e.g. `/roles/DQR-GFX`), with the link to the original JD in Google Drive |
 | `/apply` | Students | One form, up to three ranked roles, resume PDF, D'Quor tasks, availability, declaration. Draft saves on the device |
 | `/track` | Students | Status of each application and the interview slot (PRN + email + mobile) |

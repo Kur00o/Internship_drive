@@ -10,12 +10,12 @@
 import { istToIso } from './format';
 
 const MIN = 60000;
+export const EXTEND_MS = 15 * MIN; // added to a slot for each extra role at the same company
 
 export interface Rules {
   slotMin: number;
   bufferMin: number;
   dayStart: string; // HH:MM
-  dayEnd: string;
   lunchStart: string | null;
   lunchEnd: string | null;
 }
@@ -29,12 +29,16 @@ export interface Window {
 export interface Taken {
   company: string;
   start: number;
+  end?: number; // defaults to one standard slot
   panel: string | null;
 }
 
 export interface Want {
   company: string;
   appId: string;
+  also?: string[]; // the student's other roles at this company, sharing this slot
+  ms?: number; // exact length; otherwise a standard slot plus EXTEND_MS per linked role
+  from?: number; // earliest start for this want, so extending a slot never moves it earlier
 }
 
 export interface Placed extends Want {
@@ -45,15 +49,11 @@ export interface Placed extends Want {
 
 export const panelName = (company: string, n: number) => `${company}-P${n}`;
 
-export function windowFor(day: string, rules: Rules, session?: { starts_at: string | null; ends_at: string | null; panels: number }[]): Window {
-  const timed = (session ?? []).filter((s) => s.starts_at && s.ends_at);
+/** A company starts at its own session time, else the interview start time. There is no end time. */
+export function windowFor(day: string, rules: Rules, session?: { starts_at: string | null; panels: number }[]): Window {
   const clock = (t: string) => new Date(istToIso(day, t.slice(0, 5))).getTime();
-  if (!timed.length) return { start: clock(rules.dayStart), end: clock(rules.dayEnd), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
-  return {
-    start: Math.min(...timed.map((s) => clock(s.starts_at!))),
-    end: Math.max(...timed.map((s) => clock(s.ends_at!))),
-    panels: Math.max(...timed.map((s) => s.panels)),
-  };
+  const own = (session ?? []).filter((s) => s.starts_at).map((s) => clock(s.starts_at!));
+  return { start: own.length ? Math.min(...own) : clock(rules.dayStart), end: clock('23:59'), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
 }
 
 /** Start times (epoch ms) of every slot in a window. */
@@ -102,26 +102,28 @@ export function allotStudent(args: {
   const len = rules.slotMin * MIN;
   const gap = rules.bufferMin * MIN;
 
-  const used = new Map<string, Set<string>>();
-  for (const t of taken) {
-    const k = `${t.company}|${t.start}`;
-    if (!used.has(k)) used.set(k, new Set());
-    used.get(k)!.add(t.panel ?? '');
-  }
+  const clock = (t: string) => new Date(istToIso(day, t.slice(0, 5))).getTime();
+  const ls = rules.lunchStart ? clock(rules.lunchStart) : null;
+  const le = rules.lunchEnd ? clock(rules.lunchEnd) : null;
+  const sizeOf = (w: Want) => w.ms ?? len + (w.also?.length ?? 0) * EXTEND_MS;
+
   const grids = new Map<string, number[]>();
   const gridOf = (c: string) => {
     if (!grids.has(c)) grids.set(c, windows.has(c) ? slotStarts(day, rules, windows.get(c)!) : []);
     return grids.get(c)!;
   };
 
-  function firstFree(company: string, from: number, mine: [number, number][]) {
+  function firstFree(company: string, from: number, size: number, mine: [number, number][]) {
     const w = windows.get(company);
     if (!w) return null;
     for (const s of gridOf(company)) {
       if (s < from) continue;
-      const panel = freePanel(company, w.panels, used.get(`${company}|${s}`) ?? new Set());
+      if (ls != null && le != null && s < le && s + size > ls) continue;
+      // a longer slot holds its panel for as long as it runs, so later grid times can be blocked too
+      const held = taken.filter((t) => t.company === company && t.start < s + size && (t.end ?? t.start + len) > s);
+      const panel = freePanel(company, w.panels, new Set(held.map((t) => t.panel ?? '')));
       if (!panel) continue;
-      if (mine.some(([b0, b1]) => s < b1 + gap && s + len + gap > b0)) continue;
+      if (mine.some(([b0, b1]) => s < b1 + gap && s + size + gap > b0)) continue;
       return { start: s, panel };
     }
     return null;
@@ -134,10 +136,11 @@ export function allotStudent(args: {
     const mine = [...busy];
     const placed: Placed[] = [];
     for (const w of order) {
-      const slot = firstFree(w.company, notBefore, mine);
+      const size = sizeOf(w);
+      const slot = firstFree(w.company, Math.max(notBefore, w.from ?? 0), size, mine);
       if (!slot) continue;
-      placed.push({ ...w, start: slot.start, end: slot.start + len, panel: slot.panel });
-      mine.push([slot.start, slot.start + len]);
+      placed.push({ ...w, start: slot.start, end: slot.start + size, panel: slot.panel });
+      mine.push([slot.start, slot.start + size]);
     }
     const finish = Math.max(0, ...placed.map((p) => p.end));
     const sum = placed.reduce((a, p) => a + p.start, 0);

@@ -146,6 +146,7 @@ export async function loadApplications(): Promise<Application[]> {
       .from('applications')
       .select('*, applicant:applicants(*), interviews(*)')
       .order('created_at', { ascending: false })
+      .order('id') // a student's applications share created_at; pages must not shift between them
       .range(from, from + page - 1);
     if (error) fail(error);
     out.push(...((data ?? []) as Application[]));
@@ -189,6 +190,14 @@ export async function createInterviews(rows: Omit<Interview, 'id' | 'interview_c
 export async function updateInterview(id: string, patch: Partial<Interview>) {
   const { error } = await supabase.from('interviews').update(patch).eq('id', id);
   if (error) fail(error);
+}
+
+export async function moveInterviews(moves: (Pick<Interview, 'id' | 'starts_at' | 'ends_at' | 'reporting_at'> & { panel: string })[]) {
+  if (!moves.length) return;
+  // step aside first so the unique panel+time index never clashes part way through
+  const { error } = await supabase.from('interviews').update({ panel: null }).in('id', moves.map((m) => m.id));
+  if (error) fail(error);
+  await Promise.all(moves.map(({ id, ...patch }) => updateInterview(id, patch)));
 }
 
 export async function cancelInterviews(ids: string[]) {

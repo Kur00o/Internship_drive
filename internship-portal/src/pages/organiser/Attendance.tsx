@@ -1,17 +1,18 @@
 import { useMemo, useRef, useState } from 'react';
-import { allotStudent, type Placed } from '../../lib/allot';
-import { cancelInterviews, createInterviews, loadApplications, loadAttendance, loadStatusLog, markAttendance, saveSettings, unmarkAttendance, updateApplication } from '../../lib/api';
+import type { Placed } from '../../lib/allot';
+import { cancelInterviews, loadApplications, loadAttendance, loadStatusLog, markAttendance, saveSettings, unmarkAttendance, updateApplication } from '../../lib/api';
 import { formatDay, formatTime } from '../../lib/format';
 import { supabase } from '../../lib/supabase';
 import type { Application } from '../../lib/types';
-import { findStudent, liveInterviews, rulesFrom, takenFrom, venueOf, wantsFor, windowsFor } from './slotkit';
+import { applyPlan, planDay } from './reflow';
+import { findStudent, liveInterviews, primaries, rulesFrom, venueOf } from './slotkit';
 import { useStore } from './store';
 
 const todayIst = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
 export default function Attendance() {
   const { pub, apps, attendance, roleBy, companyBy, setApps, setAttendance, reload, reloadPublic } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [day, setDay] = useState(days.includes(todayIst()) ? todayIst() : days[0]);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -33,83 +34,68 @@ export default function Attendance() {
     if (!code.trim() || busy) return;
     setBusy(true);
     setMsg(null);
+    let present = '';
     try {
       // work from fresh data: another organiser may have admitted students a moment ago
       let fresh = await loadApplications();
       const student = findStudent(fresh, code);
       if (!student) throw new Error(`No student with ID or PRN “${code.trim()}”. Check the ID on the application receipt.`);
 
-      const already = attendance.find((a) => a.applicant_id === student.id && a.day === day);
-      if (already) {
-        const mine = liveInterviews(fresh, roleBy, day).filter((l) => l.app.applicant_id === student.id);
-        setMsg({
-          tone: 'good',
-          text: `${student.full_name} is already marked present${mine.length ? '' : ', but has no slots'}.`,
-          name: student.full_name,
-          slots: mine.map((l) => ({ company: l.company, appId: l.app.id, start: new Date(l.iv.starts_at).getTime(), end: new Date(l.iv.ends_at).getTime(), panel: l.iv.panel ?? '' })),
-        });
-        setCode('');
-        return;
-      }
-
-      const by = (await supabase.auth.getUser()).data.user?.email ?? 'organiser';
-      const mark = await markAttendance(student.id, day, by);
-      setAttendance((list) => [...list, mark]);
-
-      let result: { placed: Placed[]; unplaced: { company: string }[] } = { placed: [], unplaced: [] };
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const wants = wantsFor(fresh, roleBy, student.id);
-        const live = liveInterviews(fresh, roleBy, day);
-        const companies = [...new Set(wants.map((w) => w.company))];
-        result = allotStudent({
-          day,
-          rules,
-          windows: windowsFor(day, rules, companies, sessions),
-          taken: takenFrom(live),
-          busy: live.filter((l) => l.app.applicant_id === student.id).map((l) => [new Date(l.iv.starts_at).getTime(), new Date(l.iv.ends_at).getTime()]),
-          wants,
-          notBefore: day === todayIst() ? Date.now() : 0,
-        });
-        if (!result.placed.length) break;
+      let already = (await loadAttendance()).some((a) => a.applicant_id === student.id && a.day === day);
+      if (!already) {
+        const by = (await supabase.auth.getUser()).data.user?.email ?? 'organiser';
         try {
-          await createInterviews(
-            result.placed.map((p) => {
-              const venue = venueOf(p.company, day, sessions);
-              return {
-                application_id: p.appId,
-                starts_at: new Date(p.start).toISOString(),
-                ends_at: new Date(p.end).toISOString(),
-                reporting_at: new Date(p.start - 30 * 60000).toISOString(),
-                panel: p.panel,
-                mode: 'Campus' as const,
-                room: venue,
-                meet_url: null,
-              };
-            }),
-          );
+          const mark = await markAttendance(student.id, day, by);
+          setAttendance((list) => [...list, mark]);
+        } catch (err) {
+          // another organiser marked the same student at the same moment
+          if (!/duplicate|unique/i.test((err as Error).message)) throw err;
+          already = true;
+        }
+      }
+      present = student.full_name;
+
+      // runs for students already present too, so entering the ID again finishes a failed allotment
+      const planFor = (list: Application[]) => planDay({ day, apps: list, attendance: [], sessions, roleBy, rules, student: student.id, notBefore: day === todayIst() ? Date.now() : 0 });
+      let plan = planFor(fresh);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await applyPlan(plan, day, sessions);
           break;
         } catch (err) {
           // someone took the same slot at the same moment: look again
           if (attempt === 2 || !/duplicate|unique/i.test((err as Error).message)) throw err;
           fresh = await loadApplications();
+          plan = planFor(fresh);
         }
       }
-      setApps(await loadApplications());
+      fresh = await loadApplications();
+      setApps(fresh);
       setAttendance(await loadAttendance());
-      const names = result.unplaced.map((u) => companyBy.get(u.company)?.short_name ?? u.company).join(', ');
+      const slots: Placed[] = primaries(liveInterviews(fresh, roleBy, day))
+        .filter((l) => l.app.applicant_id === student.id)
+        .map((l) => ({ company: l.company, appId: l.app.id, start: new Date(l.iv.starts_at).getTime(), end: new Date(l.iv.ends_at).getTime(), panel: l.iv.panel ?? '' }));
+      const nameOf = (c: string) => companyBy.get(c)?.short_name ?? c;
+      const full = plan.unplaced.map(nameOf).join(', ');
+      const elsewhere = plan.away.map(nameOf).join(', ');
+      const lead = `${student.full_name} is ${already ? 'already ' : ''}marked present`;
+      const notes = [
+        plan.links.length > 0 && `${plan.links.length} more role${plan.links.length > 1 ? 's' : ''} at the same company linked to a slot, extended by ${plan.links.length * 15} minutes.`,
+        full && `No free slot left at ${full}: add a panel or move a slot.`,
+        elsewhere && `${elsewhere} interviews on another day: mark them present that day for a slot there.`,
+      ].filter(Boolean);
       setMsg({
-        tone: result.unplaced.length || !result.placed.length ? 'bad' : 'good',
+        tone: full || !slots.length ? 'bad' : 'good',
         name: student.full_name,
-        slots: result.placed,
-        text: !result.placed.length && !result.unplaced.length
-          ? `${student.full_name} is marked present, but has no open application to schedule.`
-          : result.unplaced.length
-            ? `${student.full_name} is marked present. No free slot left at ${names}: widen the window, add a panel or move a slot.`
-            : `${student.full_name} is marked present and has ${result.placed.length} slot${result.placed.length > 1 ? 's' : ''}.`,
+        slots,
+        text: !slots.length && !notes.length
+          ? `${lead}, but has no open application to schedule.`
+          : [slots.length ? `${lead} and has ${slots.length} slot${slots.length > 1 ? 's' : ''}.` : `${lead}.`, ...notes].join(' '),
       });
       setCode('');
     } catch (err) {
-      setMsg({ tone: 'bad', text: (err as Error).message });
+      const why = (err as Error).message;
+      setMsg({ tone: 'bad', text: present ? `${present} is marked present, but the slots did not save (${why}). Press Mark present again to retry.` : why });
     } finally {
       setBusy(false);
       input.current?.focus();
@@ -138,7 +124,7 @@ export default function Attendance() {
     }
   }
 
-  const dayInterviews = liveInterviews(apps, roleBy, day);
+  const dayInterviews = primaries(liveInterviews(apps, roleBy, day));
 
   return (
     <div className="grid gap-10">
@@ -241,8 +227,6 @@ function RulesEditor({ onSaved }: { onSaved: () => Promise<void> }) {
       await saveSettings({
         slot_minutes: v.slotMin,
         buffer_minutes: v.bufferMin,
-        day_start: v.dayStart,
-        day_end: v.dayEnd,
         lunch_start: v.lunchStart || null,
         lunch_end: v.lunchEnd || null,
       });
@@ -256,12 +240,10 @@ function RulesEditor({ onSaved }: { onSaved: () => Promise<void> }) {
   return (
     <details className="bg-mist p-4">
       <summary className="font-bold cursor-pointer">Slot rules</summary>
-      <p className="small text-ink-soft mt-2 max-w-[70ch]">Used for every company without its own session times (set those on the Schedule tab). A company session’s from/to and panels override the day window.</p>
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-3">
+      <p className="small text-ink-soft mt-2 max-w-[70ch]">Used for every company. Start times are set in Settings and on the Schedule tab, and there is no end time. Panels come from each company’s row on the Schedule tab.</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
         <label className="small">Slot (min)<input type="number" min={5} className="field mt-1" value={v.slotMin} onChange={num('slotMin')} /></label>
         <label className="small">Buffer (min)<input type="number" min={0} className="field mt-1" value={v.bufferMin} onChange={num('bufferMin')} /></label>
-        <label className="small">Day starts<input type="time" className="field mt-1" value={v.dayStart} onChange={(e) => setV({ ...v, dayStart: e.target.value })} /></label>
-        <label className="small">Day ends<input type="time" className="field mt-1" value={v.dayEnd} onChange={(e) => setV({ ...v, dayEnd: e.target.value })} /></label>
         <label className="small">Lunch from<input type="time" className="field mt-1" value={v.lunchStart ?? ''} onChange={(e) => setV({ ...v, lunchStart: e.target.value || null })} /></label>
         <label className="small">Lunch to<input type="time" className="field mt-1" value={v.lunchEnd ?? ''} onChange={(e) => setV({ ...v, lunchEnd: e.target.value || null })} /></label>
       </div>

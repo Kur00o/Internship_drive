@@ -3,22 +3,23 @@ import { freePanel, panelName, slotStarts } from '../../lib/allot';
 import { addVenue, deleteVenue, loadVenues, saveSession, updateInterview } from '../../lib/api';
 import { formatDay, formatTime } from '../../lib/format';
 import type { Interview } from '../../lib/types';
-import { liveInterviews, rulesFrom, venueOf, windowsFor } from './slotkit';
+import { linkedTo, liveInterviews, primaries, rulesFrom, venueOf, windowsFor } from './slotkit';
 import { useStore } from './store';
 
 type Live = ReturnType<typeof liveInterviews>[number];
 
 export default function Slots() {
   const { pub, apps, venues, setApps, setVenues, roleBy, companyBy, reload, reloadPublic } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [day, setDay] = useState(days[0]);
   const [drag, setDrag] = useState<{ kind: 'iv'; id: string } | { kind: 'venue'; name: string } | null>(null);
   const [over, setOver] = useState('');
   const [msg, setMsg] = useState('');
   const rules = rulesFrom(pub?.settings);
   const sessions = pub?.sessions ?? [];
-  const live = useMemo(() => liveInterviews(apps, roleBy, day), [apps, roleBy, day]);
-  const cols = (pub?.companies ?? []).filter((c) => c.jd_status === 'published' && (live.some((l) => l.company === c.code) || sessions.some((s) => s.company_code === c.code && s.day === day)));
+  const all = useMemo(() => liveInterviews(apps, roleBy, day), [apps, roleBy, day]);
+  const live = useMemo(() => primaries(all), [all]);
+  const cols = (pub?.companies ?? []).filter((c) => c.jd_status === 'published' || live.some((l) => l.company === c.code));
   const windows = windowsFor(day, rules, cols.map((c) => c.code), sessions);
 
   // rows: every grid slot of every shown company, plus any off-grid interview already booked
@@ -44,6 +45,12 @@ export default function Slots() {
     setApps((list) => list.map((a) => (a.id === applicationId ? { ...a, interviews: a.interviews.map((i) => (i.id === id ? { ...i, ...p } : i)) } : a)));
   }
 
+  /** A slot shared by two roles moves as one. */
+  async function follow(l: Live, p: Partial<Interview>) {
+    const { starts_at, ends_at, reporting_at } = p;
+    await Promise.all(linkedTo(all, l).map((x) => updateInterview(x.iv.id, { starts_at, ends_at, reporting_at })));
+  }
+
   function target(l: Live, start: number, panel: string) {
     const ms = new Date(l.iv.ends_at).getTime() - new Date(l.iv.starts_at).getTime();
     return { starts_at: new Date(start).toISOString(), ends_at: new Date(start + ms).toISOString(), reporting_at: new Date(start - 30 * 60000).toISOString(), panel };
@@ -67,6 +74,7 @@ export default function Slots() {
         const patch = target(l, start, free);
         patchLocal(id, l.iv.application_id, patch);
         await updateInterview(id, patch);
+        await follow(l, patch);
       } else {
         // slot is full: swap with the first student there
         const other = here[0];
@@ -78,6 +86,8 @@ export default function Slots() {
         await updateInterview(id, { panel: null }); // step aside so the unique panel+time index never clashes
         await updateInterview(other.iv.id, b);
         await updateInterview(id, a);
+        await follow(other, b);
+        await follow(l, a);
         await reload();
         setMsg(`Swapped ${l.app.applicant.full_name} and ${other.app.applicant.full_name}.`);
       }
@@ -209,7 +219,7 @@ function Row({ start, cols, live, windows, rules, over, setOver, onDrop, setDrag
                   className={`p-2 small ${locked ? 'bg-green-soft' : 'bg-mist cursor-grab active:cursor-grabbing'}`}
                 >
                   <p className="font-medium leading-tight">{l.app.applicant.full_name}</p>
-                  <p className="num text-ink-soft">{l.app.applicant.student_code} · {l.iv.panel ?? '—'}{l.iv.done ? ' · done' : l.iv.checked_in_at ? ' · in' : ''}</p>
+                  <p className="num text-ink-soft">{l.app.applicant.student_code} · {l.iv.panel ?? '—'} · until {formatTime(l.iv.ends_at)}{l.iv.done ? ' · done' : l.iv.checked_in_at ? ' · in' : ''}</p>
                   {!locked && (
                     <select aria-label={`Move ${l.app.applicant.full_name}`} className="field !min-h-[30px] !py-0 mt-1 small" value="" onChange={(e) => e.target.value && move(l.iv.id, c, Number(e.target.value))}>
                       <option value="">Move to…</option>

@@ -6,7 +6,7 @@ import { useDocumentTitle, usePublicData } from '../lib/hooks';
 export default function SchedulePage() {
   useDocumentTitle('Schedule · Internship Drive 2026');
   const { data, error } = usePublicData();
-  const days = data?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = data?.settings.drive_days ?? ['2026-11-03'];
   const companies = new Map((data?.companies ?? []).map((c) => [c.code, c]));
   const roles = data?.roles ?? [];
 

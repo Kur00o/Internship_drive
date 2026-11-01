@@ -8,6 +8,7 @@ import { companyResumeSignedUrl, companyResumeUrl, loadCompanyPortal, setCompany
 import { downloadCsv, formatDateTime, formatDay, formatTime, isoToIstDate, plural } from '../lib/format';
 import { useDocumentTitle } from '../lib/hooks';
 import type { PortalApplication, PortalData } from '../lib/types';
+import CompanySchedule, { slotsFrom } from './CompanySchedule';
 
 const AFTER_INTERVIEW = ['Interviewed', 'No-show', 'Selected', 'Waitlisted', 'Not Selected', 'Offer Accepted', 'Offer Declined'];
 
@@ -73,7 +74,8 @@ function Dashboard({ token }: { token: string }) {
   const [view, setView] = useState<View>('all');
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
-  useDocumentTitle(data ? `${data.company.short_name} · applicants · Internship Drive 2026` : 'Company dashboard · Internship Drive 2026');
+  const [page, setPage] = useState<'applicants' | 'schedule'>('applicants');
+  useDocumentTitle(data ? `${data.company.short_name} · ${page} · Internship Drive 2026` : 'Company dashboard · Internship Drive 2026');
 
   const load = useCallback(() => {
     loadCompanyPortal(token)
@@ -81,6 +83,13 @@ function Dashboard({ token }: { token: string }) {
       .catch((e: Error) => setError(e.message));
   }, [token]);
   useEffect(load, [load]);
+  // slots move on the day, so an open schedule keeps itself current
+  useEffect(() => {
+    if (page !== 'schedule') return;
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [page, load]);
 
   const apps = useMemo(() => data?.applications ?? [], [data]);
   const filtered = useMemo(() => {
@@ -118,9 +127,14 @@ function Dashboard({ token }: { token: string }) {
   }
   if (!data) return <main className="frame py-24 lead">Loading your applicants…</main>;
 
-  const interviews = apps
-    .flatMap((a) => a.interviews.map((iv) => ({ ...iv, app: a })))
-    .sort((x, y) => x.starts_at.localeCompare(y.starts_at));
+  const slots = slotsFrom(apps);
+  const openApplicant = (id: string) => {
+    setRole('');
+    setView('all');
+    setQ('');
+    setOpenId(id);
+    setPage('applicants');
+  };
 
   const exportCsv = () =>
     downloadCsv(`${data.company.short_name}-applicants-yi-drive-2026.csv`, [
@@ -180,10 +194,23 @@ function Dashboard({ token }: { token: string }) {
           <Kpi label="Applicants" value={apps.length} />
           <Kpi label="Waiting for your review" value={count((a) => !a.company_decision && !AFTER_INTERVIEW.includes(a.status))} />
           <Kpi label="Shortlisted" value={count((a) => a.company_decision === 'Shortlisted' || a.status === 'Interview Scheduled')} />
-          <Kpi label="Interviews scheduled" value={interviews.length} />
+          <Kpi label="Interviews scheduled" value={slots.length} />
         </section>
 
-        <section className="mt-10 grid lg:grid-cols-12 gap-6">
+        <div className="flex flex-wrap gap-2 mt-10" role="tablist" aria-label="Dashboard">
+          {(
+            [
+              ['applicants', 'Applicants'],
+              ['schedule', 'Schedule'],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={page === k} className={`px-4 py-2 font-medium ${page === k ? 'bg-ink text-paper' : 'bg-mist hover:bg-mist-deep'}`} onClick={() => setPage(k)}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {page === 'schedule' ? <CompanySchedule data={data} slots={slots} onOpen={openApplicant} /> : <section className="mt-6 grid lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8">
             <div className="flex flex-wrap items-end gap-3">
               <div>
@@ -231,7 +258,7 @@ function Dashboard({ token }: { token: string }) {
 
           <aside className="lg:col-span-4 grid gap-6 content-start">
             <div className="bg-mist p-5">
-              <h2 className="font-bold text-[1.25rem]">Your interview days</h2>
+              <h2 className="font-bold text-[1.25rem]">Your interview day</h2>
               {data.sessions.length ? (
                 <ul className="mt-3 grid gap-2">
                   {data.sessions.map((s) => (
@@ -247,15 +274,15 @@ function Dashboard({ token }: { token: string }) {
             </div>
             <div className="bg-mist p-5">
               <h2 className="font-bold text-[1.25rem]">Interview list</h2>
-              {interviews.length ? (
+              {slots.length ? (
                 <ol className="mt-3 grid gap-2">
-                  {interviews.map((iv) => (
+                  {slots.map(({ iv, app, roles }) => (
                     <li key={iv.interview_code} className="grid grid-cols-[5.5rem_1fr] gap-3">
                       <span className="num font-medium">{formatTime(iv.starts_at)}</span>
                       <span>
-                        <span className="font-medium">{iv.app.student.full_name}</span>
+                        <span className="font-medium">{app.student.full_name}</span>
                         <span className="block small">
-                          {formatDay(isoToIstDate(iv.starts_at))} · {iv.app.role_code} · {iv.mode === 'Online' ? 'Online' : iv.room || 'room TBA'}
+                          {formatDay(isoToIstDate(iv.starts_at))} · {roles.join(', ')} · {iv.mode === 'Online' ? 'Online' : iv.room || 'room TBA'}
                           {iv.checked_in_at ? ' · checked in' : ''}
                           {iv.done ? ' · done' : ''}
                           {iv.no_show ? ' · no-show' : ''}
@@ -275,7 +302,7 @@ function Dashboard({ token }: { token: string }) {
               </p>
             </div>
           </aside>
-        </section>
+        </section>}
       </main>
     </div>
   );

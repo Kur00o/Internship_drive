@@ -230,6 +230,17 @@ select.field {
   transform: none;
 }
 
+.float-note {
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.4);
+  animation: float-note 4s ease-in-out infinite;
+}
+@keyframes float-note {
+  50% { transform: translateY(-8px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-note { animation: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
