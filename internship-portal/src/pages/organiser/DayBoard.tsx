@@ -6,7 +6,7 @@ import { useStore } from './store';
 
 export default function DayBoard() {
   const { pub, apps, setApps, roleBy, companyBy } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const [day, setDay] = useState(days.includes(today) ? today : days[0]);
   const [company, setCompany] = useState('');

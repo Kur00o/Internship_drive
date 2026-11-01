@@ -10,7 +10,7 @@ type Live = ReturnType<typeof liveInterviews>[number];
 
 export default function Slots() {
   const { pub, apps, venues, setApps, setVenues, roleBy, companyBy, reload, reloadPublic } = useStore();
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [day, setDay] = useState(days[0]);
   const [drag, setDrag] = useState<{ kind: 'iv'; id: string } | { kind: 'venue'; name: string } | null>(null);
   const [over, setOver] = useState('');

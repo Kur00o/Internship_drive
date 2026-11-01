@@ -47,7 +47,7 @@ export function SiteFooter() {
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="max-w-md">
           <p className="font-medium">Young Indians · MIT-WPU Student Chapter</p>
-          <p className="small text-paper/80 mt-1">Internship Drive 2026 · interviews on 2 and 3 November at MIT-WPU, Pune.</p>
+          <p className="small text-paper/80 mt-1">Internship Drive 2026 · interviews on Tuesday 3 November at MIT-WPU, Pune.</p>
         </div>
         <nav className="flex flex-wrap gap-x-6 gap-y-2 small" aria-label="Footer">
           <Link to="/#roles" className="link">Roles</Link>

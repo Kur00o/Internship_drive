@@ -62,7 +62,7 @@ export default function ApplyPage() {
   const companies = useMemo(() => new Map((data?.companies ?? []).map((c) => [c.code, c])), [data]);
   const chosen = draft.roles.map((c) => byCode.get(c.code)).filter(Boolean) as Role[];
   const needsPortfolio = chosen.some((r) => r.needs_portfolio);
-  const slots = interviewSlots(data?.settings.drive_days ?? ['2026-11-02', '2026-11-03']);
+  const slots = interviewSlots(data?.settings.drive_days ?? ['2026-11-03']);
   const yearsOptions = useMemo(() => getYearsForProgramme(draft.programme), [draft.programme]);
   const settings = data?.settings;
   const closed =

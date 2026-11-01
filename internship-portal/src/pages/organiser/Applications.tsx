@@ -345,7 +345,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
   const [log, setLog] = useState<StatusLogEntry[]>([]);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
-  const days = pub?.settings.drive_days ?? ['2026-11-02', '2026-11-03'];
+  const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [iv, setIv] = useState({ day: days[0], time: '10:00', minutes: String(role?.interview_minutes ?? 15), panel: `${role?.company_code ?? ''}-P1`, mode: 'Campus', room: '', meet: '' });
 
   useEffect(() => {

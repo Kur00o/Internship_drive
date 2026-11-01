@@ -146,6 +146,7 @@ export async function loadApplications(): Promise<Application[]> {
       .from('applications')
       .select('*, applicant:applicants(*), interviews(*)')
       .order('created_at', { ascending: false })
+      .order('id') // a student's applications share created_at; pages must not shift between them
       .range(from, from + page - 1);
     if (error) fail(error);
     out.push(...((data ?? []) as Application[]));
