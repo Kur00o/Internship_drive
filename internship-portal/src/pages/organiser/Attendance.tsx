@@ -266,7 +266,7 @@ function RulesEditor({ onSaved }: { onSaved: () => Promise<void> }) {
   return (
     <details className="bg-mist p-4">
       <summary className="font-bold cursor-pointer">Slot rules</summary>
-      <p className="small text-ink-soft mt-2 max-w-[70ch]">Used for every company. The first interview time is set on the Settings page and there is no end time. Panels come from each company’s session on the Schedule tab.</p>
+      <p className="small text-ink-soft mt-2 max-w-[70ch]">Used for every company. Start times are set in Settings and on the Schedule tab, and there is no end time. Panels come from each company’s row on the Schedule tab.</p>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
         <label className="small">Slot (min)<input type="number" min={5} className="field mt-1" value={v.slotMin} onChange={num('slotMin')} /></label>
         <label className="small">Buffer (min)<input type="number" min={0} className="field mt-1" value={v.bufferMin} onChange={num('bufferMin')} /></label>

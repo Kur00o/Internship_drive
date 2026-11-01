@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { addOrganizer, loadOrganizers, removeOrganizer, saveSettings } from '../../lib/api';
+import { addOrganizer, loadApplications, loadOrganizers, removeOrganizer, saveSession, saveSettings } from '../../lib/api';
 import { formatDateTime, isoToIstClock, isoToIstDate, istToIso } from '../../lib/format';
 import type { DriveSettings } from '../../lib/types';
+import { reflowSlots, reflowSummary } from './reflow';
 import { useStore } from './store';
 
 export default function Settings() {
-  const { pub, reloadPublic } = useStore();
+  const { pub, reloadPublic, setApps } = useStore();
   const [s, setS] = useState<DriveSettings | null>(pub?.settings ?? null);
   const [closeDate, setCloseDate] = useState('');
   const [closeTime, setCloseTime] = useState('23:59');
@@ -33,6 +34,9 @@ export default function Settings() {
   async function save() {
     if (!s) return;
     setMsg('');
+    const start = s.day_start?.slice(0, 5);
+    const newStart = !!start && start !== pub?.settings.day_start.slice(0, 5);
+    if (newStart && !confirm(`Start every company at ${start}? This replaces each company’s own start time and moves booked slots, except students already checked in. Students see the new times on Track.`)) return;
     try {
       await saveSettings({
         applications_open: s.applications_open,
@@ -45,8 +49,16 @@ export default function Settings() {
         announcement: s.announcement || null,
         day_start: s.day_start || pub?.settings.day_start,
       });
+      let moved = '';
+      if (newStart) {
+        for (const x of pub?.sessions ?? []) {
+          await saveSession({ id: x.id, company_code: x.company_code, day: x.day, starts_at: start, ends_at: x.ends_at && x.ends_at > start ? x.ends_at : null });
+        }
+        moved = ` ${reflowSummary(await reflowSlots())}`;
+        setApps(await loadApplications());
+      }
       await reloadPublic();
-      setMsg('Saved. The public site shows the change on next load.');
+      setMsg(`Saved.${moved} The public site shows the change on next load.`);
     } catch (e) {
       setMsg((e as Error).message);
     }
@@ -88,7 +100,7 @@ export default function Settings() {
             First interview at every company (IST)
             <input type="time" className="field" value={s.day_start?.slice(0, 5) ?? ''} onChange={(e) => setS({ ...s, day_start: e.target.value })} />
           </label>
-          <p className="small text-ink-soft">Students are allotted from this time with no end time, skipping lunch. Slots already given stay as they are.</p>
+          <p className="small text-ink-soft">Saving a new time starts every company then, with no end time, skipping lunch, and moves booked slots to match. To change one company afterwards, use its From time on the Schedule tab.</p>
         </div>
         <div className="flex items-center gap-4">
           <button className="btn btn-ink" onClick={save}>Save settings</button>

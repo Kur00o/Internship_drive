@@ -18,7 +18,7 @@ export default function Slots() {
   const rules = rulesFrom(pub?.settings);
   const sessions = pub?.sessions ?? [];
   const live = useMemo(() => liveInterviews(apps, roleBy, day), [apps, roleBy, day]);
-  const cols = (pub?.companies ?? []).filter((c) => c.jd_status === 'published' && (live.some((l) => l.company === c.code) || sessions.some((s) => s.company_code === c.code && s.day === day)));
+  const cols = (pub?.companies ?? []).filter((c) => c.jd_status === 'published' || live.some((l) => l.company === c.code));
   const windows = windowsFor(day, rules, cols.map((c) => c.code), sessions);
 
   // rows: every grid slot of every shown company, plus any off-grid interview already booked
