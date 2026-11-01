@@ -44,10 +44,11 @@ export interface Placed extends Want {
 
 export const panelName = (company: string, n: number) => `${company}-P${n}`;
 
-/** Every company starts at the interview start time and has no end time; its sessions only set the panels. */
-export function windowFor(day: string, rules: Rules, session?: { panels: number }[]): Window {
-  const clock = (t: string) => new Date(istToIso(day, t)).getTime();
-  return { start: clock(rules.dayStart), end: clock('23:59'), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
+/** A company starts at its own session time, else the interview start time. There is no end time. */
+export function windowFor(day: string, rules: Rules, session?: { starts_at: string | null; panels: number }[]): Window {
+  const clock = (t: string) => new Date(istToIso(day, t.slice(0, 5))).getTime();
+  const own = (session ?? []).filter((s) => s.starts_at).map((s) => clock(s.starts_at!));
+  return { start: own.length ? Math.min(...own) : clock(rules.dayStart), end: clock('23:59'), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
 }
 
 /** Start times (epoch ms) of every slot in a window. */

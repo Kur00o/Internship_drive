@@ -1,18 +1,25 @@
 import { useMemo, useState } from 'react';
-import { createInterviews, deleteSession, saveSession } from '../../lib/api';
+import { createInterviews, deleteSession, loadApplications, saveSession } from '../../lib/api';
 import { formatDay, formatTime, istToIso, isoToIstDate } from '../../lib/format';
 import type { Application, DriveSession } from '../../lib/types';
+import { reflowSlots, reflowSummary } from './reflow';
+import { rulesFrom } from './slotkit';
 import { useStore } from './store';
 
 const GAP = 30 * 60000;
 const BUFFER = 5;
 
 export default function Schedule() {
-  const { pub, apps, companyBy, reload, reloadPublic } = useStore();
+  const { pub, apps, companyBy, reload, reloadPublic, setApps } = useStore();
   const days = pub?.settings.drive_days ?? ['2026-11-03'];
   const [day, setDay] = useState(days[0]);
   const sessions = (pub?.sessions ?? []).filter((s) => s.day === day);
   const companies = (pub?.companies ?? []).filter((c) => c.jd_status === 'published');
+  const dayStart = rulesFrom(pub?.settings).dayStart;
+  const afterSave = async () => {
+    await reloadPublic();
+    setApps(await loadApplications());
+  };
   const interviews = apps
     .flatMap((a) => a.interviews.filter((i) => !i.cancelled && isoToIstDate(i.starts_at) === day).map((i) => ({ ...i, app: a })))
     .sort((x, y) => x.starts_at.localeCompare(y.starts_at));
@@ -29,12 +36,14 @@ export default function Schedule() {
 
       <section>
         <h1 className="font-bold text-[1.5rem]">Company sessions on {formatDay(day, { weekday: 'long' })}</h1>
-        <p className="mt-1 text-ink-soft">These show on the public schedule. Leave times empty until the company confirms. Attendance allotment uses only the panels here: every company starts at the interview start time in Settings.</p>
+        <p className="mt-1 text-ink-soft">Every company is listed. From is its first interview and defaults to the start time in Settings; changing it moves that company’s booked slots. There is no end time for allotment: To only shows on the public schedule.</p>
         <div className="mt-4 grid gap-3">
           {sessions.map((s) => (
-            <SessionEditor key={s.id} session={s} companies={companies.map((c) => [c.code, c.short_name])} onSaved={reloadPublic} />
+            <SessionEditor key={s.id} session={s} companies={companies.map((c) => [c.code, c.short_name])} onSaved={afterSave} />
           ))}
-          <SessionEditor key={`new-${day}-${sessions.length}`} session={{ id: '', company_code: '', day, starts_at: '09:30', ends_at: '17:00', venue: '', mode: 'On campus', panels: 1, note: '' }} companies={companies.map((c) => [c.code, c.short_name])} onSaved={reloadPublic} isNew />
+          {companies.filter((c) => !sessions.some((s) => s.company_code === c.code)).map((c) => (
+            <SessionEditor key={`new-${day}-${c.code}-${dayStart}`} session={{ id: '', company_code: c.code, day, starts_at: dayStart, ends_at: null, venue: '', mode: 'On campus', panels: 1, note: '' }} companies={companies.map((x) => [x.code, x.short_name])} onSaved={afterSave} isNew />
+          ))}
         </div>
       </section>
 
@@ -93,13 +102,19 @@ function SessionEditor({ session, companies, onSaved, isNew }: { session: DriveS
   const [s, setS] = useState({ ...session, starts_at: session.starts_at?.slice(0, 5) ?? '', ends_at: session.ends_at?.slice(0, 5) ?? '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [done, setDone] = useState('');
+  const moves = s.starts_at !== (session.starts_at?.slice(0, 5) ?? '');
+  const asked = () => confirm('Move this company’s booked slots to the new start time? Students already checked in stay. Students see the new times on Track.');
   async function save() {
     if (!s.company_code) return setErr('Pick a company.');
+    if (moves && !asked()) return;
     setBusy(true);
     setErr('');
+    setDone('');
     try {
       const { id, ...rest } = s;
       await saveSession({ ...(isNew ? {} : { id }), ...rest, starts_at: s.starts_at || null, ends_at: s.ends_at || null, venue: s.venue || null, note: s.note || null });
+      if (moves) setDone(reflowSummary(await reflowSlots(s.company_code)));
       await onSaved();
     } catch (e) {
       setErr((e as Error).message);
@@ -130,13 +145,20 @@ function SessionEditor({ session, companies, onSaved, isNew }: { session: DriveS
         </label>
         <label className="small">Panels<input type="number" min={1} max={10} className="field mt-1" value={s.panels} onChange={(e) => setS({ ...s, panels: Number(e.target.value) || 1 })} /></label>
         <div className="flex gap-2">
-          <button className="btn btn-ink !min-h-[48px]" onClick={save} disabled={busy}>{isNew ? 'Add' : 'Save'}</button>
+          <button className="btn btn-ink !min-h-[48px]" onClick={save} disabled={busy}>Save</button>
           {!isNew && (
             <button
               className="btn btn-paper !min-h-[48px]"
               onClick={async () => {
-                await deleteSession(session.id);
-                await onSaved();
+                if (session.starts_at && !asked()) return;
+                setErr('');
+                try {
+                  await deleteSession(session.id);
+                  if (session.starts_at) await reflowSlots(session.company_code);
+                  await onSaved();
+                } catch (e) {
+                  setErr((e as Error).message);
+                }
               }}
             >
               Remove
@@ -145,6 +167,7 @@ function SessionEditor({ session, companies, onSaved, isNew }: { session: DriveS
         </div>
       </div>
       {err && <p className="error-text">{err}</p>}
+      {done && <p className="small font-medium">{done}</p>}
     </div>
   );
 }

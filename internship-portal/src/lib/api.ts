@@ -192,6 +192,14 @@ export async function updateInterview(id: string, patch: Partial<Interview>) {
   if (error) fail(error);
 }
 
+export async function moveInterviews(moves: (Pick<Interview, 'id' | 'starts_at' | 'ends_at' | 'reporting_at'> & { panel: string })[]) {
+  if (!moves.length) return;
+  // step aside first so the unique panel+time index never clashes part way through
+  const { error } = await supabase.from('interviews').update({ panel: null }).in('id', moves.map((m) => m.id));
+  if (error) fail(error);
+  await Promise.all(moves.map(({ id, ...patch }) => updateInterview(id, patch)));
+}
+
 export async function cancelInterviews(ids: string[]) {
   if (!ids.length) return;
   const { error } = await supabase.from('interviews').update({ cancelled: true }).in('id', ids);
