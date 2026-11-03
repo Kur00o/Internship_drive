@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { createInterviews, deleteSession, loadApplications, saveSession } from '../../lib/api';
-import { formatDay, formatTime, istToIso, isoToIstDate } from '../../lib/format';
+import { driveDayOf, slotLabel } from '../../lib/allot';
+import { formatDay, formatTime, istToIso } from '../../lib/format';
 import type { Application, DriveSession } from '../../lib/types';
-import { reflowSlots, reflowSummary } from './reflow';
+import { markAway, reflowSlots, reflowSummary } from './reflow';
 import { rulesFrom } from './slotkit';
 import { useStore } from './store';
 
@@ -15,13 +16,14 @@ export default function Schedule() {
   const [day, setDay] = useState(days[0]);
   const sessions = (pub?.sessions ?? []).filter((s) => s.day === day);
   const companies = (pub?.companies ?? []).filter((c) => c.jd_status === 'published');
-  const dayStart = rulesFrom(pub?.settings).dayStart;
+  const rules = rulesFrom(pub?.settings);
+  const dayStart = rules.dayStart;
   const afterSave = async () => {
     await reloadPublic();
     setApps(await loadApplications());
   };
   const interviews = apps
-    .flatMap((a) => a.interviews.filter((i) => !i.cancelled && isoToIstDate(i.starts_at) === day).map((i) => ({ ...i, app: a })))
+    .flatMap((a) => a.interviews.filter((i) => !i.cancelled && driveDayOf(i.starts_at, days) === day).map((i) => ({ ...i, app: a })))
     .sort((x, y) => x.starts_at.localeCompare(y.starts_at));
 
   return (
@@ -70,7 +72,7 @@ export default function Schedule() {
             <table className="w-full min-w-[720px] text-left">
               <thead className="small text-ink-soft">
                 <tr>
-                  <th className="py-2 pr-3 font-medium">Time</th>
+                  <th className="py-2 pr-3 font-medium">Slot</th>
                   <th className="py-2 pr-3 font-medium">Interview</th>
                   <th className="py-2 pr-3 font-medium">Student</th>
                   <th className="py-2 pr-3 font-medium">Role</th>
@@ -81,7 +83,7 @@ export default function Schedule() {
               <tbody>
                 {interviews.map((i) => (
                   <tr key={i.id} className="border-t border-mist-deep">
-                    <td className="py-2 pr-3 num">{formatTime(i.starts_at)}–{formatTime(i.ends_at)}</td>
+                    <td className="py-2 pr-3 num">{slotLabel(i.starts_at, days, rules)}</td>
                     <td className="py-2 pr-3 num">{i.interview_code}</td>
                     <td className="py-2 pr-3">{i.app.applicant.full_name} <span className="small text-ink-soft num">{i.app.applicant.phone}</span></td>
                     <td className="py-2 pr-3">{i.app.role_code}</td>
@@ -103,7 +105,27 @@ function SessionEditor({ session, companies, onSaved, isNew }: { session: DriveS
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState('');
+  const { pub, apps, roleBy } = useStore();
   const moves = s.starts_at !== (session.starts_at?.slice(0, 5) ?? '');
+  async function setAway(away: boolean) {
+    if (!s.company_code) return setErr('Pick a company.');
+    const name = companies.find(([c]) => c === s.company_code)?.[1] ?? s.company_code;
+    if (away && !confirm(`Mark ${name} as not coming on this day? Its slots that have not started are cancelled and students get no new slots there.`)) return;
+    setBusy(true);
+    setErr('');
+    setDone('');
+    try {
+      if (away) {
+        const freed = await markAway(s.company_code, session.day, pub?.settings.drive_days ?? [session.day], pub?.sessions ?? [], apps, roleBy);
+        setDone(`${name} marked as not coming. ${freed} slot${freed === 1 ? '' : 's'} cancelled.`);
+      } else await saveSession({ id: session.id, company_code: s.company_code, day: session.day, away: false });
+      await onSaved();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const asked = () => confirm('Move this company’s booked slots to the new start time? Students already checked in stay. Students see the new times on Track.');
   async function save() {
     if (!s.company_code) return setErr('Pick a company.');
@@ -165,6 +187,16 @@ function SessionEditor({ session, companies, onSaved, isNew }: { session: DriveS
             </button>
           )}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 small">
+        {session.away ? (
+          <>
+            <span className="font-medium bg-saffron-soft px-2 py-1">Not coming this day</span>
+            <button className="link" onClick={() => setAway(false)} disabled={busy}>Coming after all</button>
+          </>
+        ) : (
+          <button className="link" onClick={() => setAway(true)} disabled={busy}>Mark as not coming</button>
+        )}
       </div>
       {err && <p className="error-text">{err}</p>}
       {done && <p className="small font-medium">{done}</p>}

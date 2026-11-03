@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { updateInterview } from '../../lib/api';
 import { formatDay, formatTime } from '../../lib/format';
 import type { Interview } from '../../lib/types';
-import { linkedTo, liveInterviews, primaries } from './slotkit';
+import { slotLabel } from '../../lib/allot';
+import { linkedTo, liveInterviews, primaries, rulesFrom } from './slotkit';
 import { useStore } from './store';
 
 export default function DayBoard() {
@@ -11,13 +12,10 @@ export default function DayBoard() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const [day, setDay] = useState(days.includes(today) ? today : days[0]);
   const [company, setCompany] = useState('');
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(t);
-  }, []);
 
-  const live = liveInterviews(apps, roleBy, day);
+  const live = liveInterviews(apps, roleBy, day, days);
+  const rules = rulesFrom(pub?.settings);
+  const slotOf = (iso: string) => slotLabel(iso, days, rules);
   const rows = primaries(live)
     .filter((r) => !company || r.company === company)
     .sort((x, y) => x.iv.starts_at.localeCompare(y.iv.starts_at));
@@ -31,7 +29,10 @@ export default function DayBoard() {
     if (r.iv.no_show) c.noshow++;
     byCompany.set(r.company, c);
   });
-  const calling = rows.filter((r) => !r.iv.done && !r.iv.no_show && new Date(r.iv.starts_at).getTime() - now < 30 * 60000 && new Date(r.iv.ends_at).getTime() > now);
+  // slots are a queue, not clock times: call the next student waiting on each panel
+  const next = new Map<string, (typeof rows)[number]>();
+  rows.filter((r) => !r.iv.done && !r.iv.no_show).forEach((r) => next.has(r.iv.panel ?? r.iv.id) || next.set(r.iv.panel ?? r.iv.id, r));
+  const calling = [...next.values()];
 
   async function patch(iv: Interview, p: Partial<Interview>) {
     // a slot shared by two roles checks in and finishes as one
@@ -84,7 +85,7 @@ export default function DayBoard() {
           <ul className="mt-2 grid md:grid-cols-2 gap-x-6 gap-y-1">
             {calling.map((r) => (
               <li key={r.iv.id} className="num">
-                {formatTime(r.iv.starts_at)} · <b>{r.app.applicant.full_name}</b> → {r.iv.room || r.iv.panel || 'room TBA'}
+                {slotOf(r.iv.starts_at)} · <b>{r.app.applicant.full_name}</b> → {r.iv.room || r.iv.panel || 'room TBA'}
                 {r.iv.checked_in_at ? '' : ' · not checked in'}
               </li>
             ))}
@@ -112,7 +113,7 @@ export default function DayBoard() {
             {rows.map(({ iv, app }) => (
               <tr key={iv.id} className={`border-t border-mist-deep ${iv.done ? 'text-ink-soft' : ''}`}>
                 <td className="py-2.5 pr-3 num">
-                  <b>{formatTime(iv.starts_at)}</b>
+                  <b>{slotOf(iv.starts_at)}</b>
                   <span className="block small">{iv.interview_code}</span>
                 </td>
                 <td className="py-2.5 pr-3">

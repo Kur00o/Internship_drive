@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { driveDayOf, rulesFrom, slotLabel } from './allot';
 import { loadPublicData } from './api';
 import type { PublicData } from './types';
 
@@ -18,6 +19,14 @@ export function usePublicData() {
   }, [attempt]);
 
   return { data, error, retry: () => setAttempt((n) => n + 1) };
+}
+
+/** Slot number and drive day for an interview, from the drive's slot rules. */
+export function useSlots() {
+  const { data } = usePublicData();
+  const days = data?.settings.drive_days ?? [];
+  const rules = rulesFrom(data?.settings);
+  return { slotOf: (iso: string) => slotLabel(iso, days, rules), dayOf: (iso: string) => driveDayOf(iso, days) };
 }
 
 /** Adds `.in` to `.rise` children as they enter the viewport. */

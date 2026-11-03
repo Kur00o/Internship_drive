@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { formatDay, formatTime, isoToIstDate } from '../lib/format';
+import { formatDay } from '../lib/format';
+import { useSlots } from '../lib/hooks';
 import type { PortalApplication, PortalData } from '../lib/types';
 
 type Interview = PortalApplication['interviews'][number];
@@ -36,7 +37,8 @@ function state(iv: Interview) {
 
 export default function CompanySchedule({ data, slots, onOpen }: { data: PortalData; slots: Slot[]; onOpen: (appId: string) => void }) {
   const [panel, setPanel] = useState('');
-  const days = [...new Set([...data.settings.drive_days, ...slots.map((s) => isoToIstDate(s.iv.starts_at))])].sort();
+  const { slotOf, dayOf } = useSlots();
+  const days = [...new Set([...data.settings.drive_days, ...slots.map((s) => dayOf(s.iv.starts_at))])].sort();
   const panels = [...new Set(slots.map((s) => s.iv.panel).filter((p): p is string => !!p))].sort();
   const shown = slots.filter((s) => !panel || s.iv.panel === panel);
   const title = (code: string) => data.roles.find((r) => r.code === code)?.title ?? code;
@@ -46,7 +48,7 @@ export default function CompanySchedule({ data, slots, onOpen }: { data: PortalD
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="font-bold text-[1.5rem]">Your interview schedule</h2>
-          <p className="mt-1 text-ink-soft max-w-[60ch]">Every interview in time order. This page refreshes on its own, so any change the Yi team makes shows here.</p>
+          <p className="mt-1 text-ink-soft max-w-[60ch]">Every interview in slot order. This page refreshes on its own, so any change the Yi team makes shows here.</p>
         </div>
         {panels.length > 1 && (
           <div>
@@ -60,7 +62,7 @@ export default function CompanySchedule({ data, slots, onOpen }: { data: PortalD
       </div>
 
       {days.map((d) => {
-        const today = shown.filter((s) => isoToIstDate(s.iv.starts_at) === d);
+        const today = shown.filter((s) => dayOf(s.iv.starts_at) === d);
         return (
           <div key={d}>
             <h3 className="font-bold text-[1.25rem]">
@@ -74,10 +76,7 @@ export default function CompanySchedule({ data, slots, onOpen }: { data: PortalD
                   const st = state(iv);
                   return (
                     <li key={iv.interview_code} className={`bg-mist p-4 grid sm:grid-cols-[9.5rem_1fr_auto] gap-x-5 gap-y-2 items-start ${iv.done || iv.no_show ? 'opacity-60' : ''}`}>
-                      <p className="num font-bold text-[1.125rem] leading-snug">
-                        {formatTime(iv.starts_at)}
-                        <span className="block small font-medium">to {formatTime(iv.ends_at)}</span>
-                      </p>
+                      <p className="num font-bold text-[1.125rem] leading-snug">{slotOf(iv.starts_at)}</p>
                       <div className="min-w-0">
                         <button className="font-bold text-[1.125rem] link text-left" onClick={() => onOpen(app.id)}>{app.student.full_name}</button>
                         <p className="small mt-0.5">{roles.map(title).join(' · ')}</p>
