@@ -3,7 +3,7 @@
 // anyone checked in, done or marked no-show stays where they are.
 
 import { allotStudent, EXTEND_MS, type Placed, type Rules } from '../../lib/allot';
-import { createInterviews, loadApplications, loadAttendance, loadPublicData, moveInterviews, updateInterview } from '../../lib/api';
+import { cancelInterviews, createInterviews, loadApplications, loadAttendance, loadPublicData, loadStatusLog, moveInterviews, saveSession, updateApplication, updateInterview } from '../../lib/api';
 import type { Application, Attendance, DriveSession, Interview, Role } from '../../lib/types';
 import { attendsOn, linkedTo, linksFor, liveInterviews, primaries, rulesFrom, takenFrom, venueOf, wantsFor, windowsFor } from './slotkit';
 
@@ -15,6 +15,7 @@ type Link = Pick<Placed, 'appId' | 'start' | 'end'> & Pick<Interview, 'room' | '
 
 export function planDay(args: {
   day: string;
+  days: string[];
   apps: Application[];
   attendance: Attendance[];
   sessions: DriveSession[];
@@ -24,8 +25,8 @@ export function planDay(args: {
   student?: string; // only this student's new and linked slots; everyone else stays put
   notBefore: number;
 }) {
-  const { day, apps, sessions, roleBy, rules, company, student, notBefore } = args;
-  const all = liveInterviews(apps, roleBy, day);
+  const { day, days, apps, sessions, roleBy, rules, company, student, notBefore } = args;
+  const all = liveInterviews(apps, roleBy, day, days);
   const live = primaries(all);
   const open = live.filter(
     (l) =>
@@ -115,7 +116,7 @@ export async function reflowSlots(company?: string) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const total = { moved: 0, added: 0, linked: 0, stuck: 0 };
   for (const day of pub.settings.drive_days) {
-    const plan = planDay({ day, apps, attendance, sessions: pub.sessions, roleBy, rules: rulesFrom(pub.settings), company, notBefore: day === today ? Date.now() : 0 });
+    const plan = planDay({ day, days: pub.settings.drive_days, apps, attendance, sessions: pub.sessions, roleBy, rules: rulesFrom(pub.settings), company, notBefore: day === today ? Date.now() : 0 });
     await applyPlan(plan, day, pub.sessions);
     total.moved += plan.moves.length;
     total.added += plan.adds.length;
@@ -132,6 +133,27 @@ export function reflowSummary({ moved, added, linked, stuck }: { moved: number; 
     linked ? `${linked} role${linked === 1 ? '' : 's'} linked to an existing slot` : '',
     stuck ? `${stuck} did not fit` : '',
   ].filter(Boolean).join(', ') + '.';
+}
+
+/** Cancels these slots and puts each application back to where it was before it was scheduled. */
+export async function freeSlots(rows: ReturnType<typeof liveInterviews>) {
+  await cancelInterviews(rows.map((l) => l.iv.id));
+  for (const l of rows) {
+    const log = await loadStatusLog(l.app.id);
+    const prev = log.find((e) => e.to_status === 'Interview Scheduled')?.from_status;
+    const stillLive = l.app.interviews.some((i) => !i.cancelled && !rows.some((r) => r.iv.id === i.id));
+    if (prev && !stillLive && l.app.status === 'Interview Scheduled') await updateApplication(l.app.id, { status: prev as Application['status'] });
+  }
+}
+
+/** Marks a company as not coming on a day and frees its slots there that have not started. */
+export async function markAway(company: string, day: string, days: string[], sessions: DriveSession[], apps: Application[], roleBy: Map<string, Role>) {
+  const own = sessions.filter((s) => s.company_code === company && s.day === day);
+  if (own.length) for (const s of own) await saveSession({ id: s.id, company_code: company, day, away: true });
+  else await saveSession({ company_code: company, day, away: true, mode: 'On campus', panels: 1 });
+  const open = liveInterviews(apps, roleBy, day, days).filter((l) => l.company === company && !l.iv.checked_in_at && !l.iv.done && !l.iv.no_show);
+  await freeSlots(open);
+  return open.length;
 }
 
 /** Cancels one role's interview. A shared slot stays for the other roles, 15 minutes shorter. */

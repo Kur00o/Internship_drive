@@ -101,6 +101,7 @@ export interface DriveSession {
   mode: 'On campus' | 'Online' | 'On campus + online';
   panels: number;
   note: string | null;
+  away?: boolean; // not coming this day
 }
 
 export const STATUSES = [

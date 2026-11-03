@@ -1,19 +1,7 @@
-import { windowFor, type Rules, type Taken, type Window } from '../../lib/allot';
-import { isoToIstDate } from '../../lib/format';
-import type { Application, DriveSession, DriveSettings, Role } from '../../lib/types';
+import { driveDayOf, windowFor, type Rules, type Taken, type Window } from '../../lib/allot';
+import type { Application, DriveSession, Role } from '../../lib/types';
 
-export const DEFAULT_RULES: Rules = { slotMin: 30, bufferMin: 20, dayStart: '11:00', lunchStart: '13:00', lunchEnd: '14:00' };
-
-export function rulesFrom(s?: DriveSettings): Rules {
-  if (!s || s.slot_minutes == null) return DEFAULT_RULES;
-  return {
-    slotMin: s.slot_minutes,
-    bufferMin: s.buffer_minutes,
-    dayStart: s.day_start.slice(0, 5),
-    lunchStart: s.lunch_start?.slice(0, 5) ?? null,
-    lunchEnd: s.lunch_end?.slice(0, 5) ?? null,
-  };
-}
+export { DEFAULT_RULES, rulesFrom } from '../../lib/allot';
 
 export function windowsFor(day: string, rules: Rules, companyCodes: string[], sessions: DriveSession[]) {
   const m = new Map<string, Window>();
@@ -21,21 +9,26 @@ export function windowsFor(day: string, rules: Rules, companyCodes: string[], se
   return m;
 }
 
-/** False when a company has sessions, but only on other days. No sessions at all means the default day window. */
+/** False when a company is marked not coming that day, or has sessions only on other days. No sessions at all means the default day window. */
 export function attendsOn(company: string, day: string, sessions: DriveSession[]) {
   const own = sessions.filter((s) => s.company_code === company);
+  if (isAway(company, day, sessions)) return false;
   return !own.length || own.some((s) => s.day === day);
+}
+
+export function isAway(company: string, day: string, sessions: DriveSession[]) {
+  return sessions.some((s) => s.company_code === company && s.day === day && s.away);
 }
 
 export function venueOf(company: string, day: string, sessions: DriveSession[]) {
   return sessions.find((s) => s.company_code === company && s.day === day && s.venue)?.venue ?? null;
 }
 
-/** Live (not cancelled) interviews on a day, with their company. */
-export function liveInterviews(apps: Application[], roleBy: Map<string, Role>, day: string) {
+/** Live (not cancelled) interviews on a drive day, with their company. Pass every drive day so a late slot lands on the right one. */
+export function liveInterviews(apps: Application[], roleBy: Map<string, Role>, day: string, days: string[] = [day]) {
   return apps.flatMap((a) =>
     a.interviews
-      .filter((i) => !i.cancelled && isoToIstDate(i.starts_at) === day)
+      .filter((i) => !i.cancelled && driveDayOf(i.starts_at, days) === day)
       .map((i) => ({ iv: i, app: a, company: roleBy.get(a.role_code)?.company_code ?? '' })),
   );
 }

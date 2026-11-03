@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
-import { freePanel, panelName, slotStarts } from '../../lib/allot';
+import { freePanel, panelName, slotLabel, slotStarts } from '../../lib/allot';
 import { addVenue, deleteVenue, loadVenues, saveSession, updateInterview } from '../../lib/api';
-import { formatDay, formatTime } from '../../lib/format';
+import { formatDay } from '../../lib/format';
 import type { Interview } from '../../lib/types';
-import { linkedTo, liveInterviews, primaries, rulesFrom, venueOf, windowsFor } from './slotkit';
+import { isAway, linkedTo, liveInterviews, primaries, rulesFrom, venueOf, windowsFor } from './slotkit';
 import { useStore } from './store';
 
 type Live = ReturnType<typeof liveInterviews>[number];
+
+const SPARE_ROWS = 6; // empty slots shown after the last booked one
 
 export default function Slots() {
   const { pub, apps, venues, setApps, setVenues, roleBy, companyBy, reload, reloadPublic } = useStore();
@@ -17,16 +19,20 @@ export default function Slots() {
   const [msg, setMsg] = useState('');
   const rules = rulesFrom(pub?.settings);
   const sessions = pub?.sessions ?? [];
-  const all = useMemo(() => liveInterviews(apps, roleBy, day), [apps, roleBy, day]);
+  const all = useMemo(() => liveInterviews(apps, roleBy, day, days), [apps, roleBy, day, days]);
   const live = useMemo(() => primaries(all), [all]);
-  const cols = (pub?.companies ?? []).filter((c) => c.jd_status === 'published' || live.some((l) => l.company === c.code));
+  // a company not coming keeps its column only while it still has slots to clear
+  const cols = (pub?.companies ?? []).filter((c) => (c.jd_status === 'published' && !isAway(c.code, day, sessions)) || live.some((l) => l.company === c.code));
   const windows = windowsFor(day, rules, cols.map((c) => c.code), sessions);
+  const slotOf = (iso: string) => slotLabel(iso, days, rules);
 
-  // rows: every grid slot of every shown company, plus any off-grid interview already booked
-  const rowSet = new Set<number>();
-  windows.forEach((w) => slotStarts(day, rules, w).forEach((s) => rowSet.add(s)));
-  live.forEach((l) => rowSet.add(new Date(l.iv.starts_at).getTime()));
-  const rows = [...rowSet].sort((a, b) => a - b);
+  // rows: grid slots up to the last booked one plus a few spare, and any off-grid interview already booked
+  const grid = new Set<number>();
+  windows.forEach((w) => slotStarts(day, rules, w).forEach((s) => grid.add(s)));
+  const booked = live.map((l) => new Date(l.iv.starts_at).getTime());
+  const sorted = [...grid].sort((a, b) => a - b);
+  const keep = Math.max(...sorted.map((s, n) => (booked.some((b) => b >= s) ? n : -1))) + SPARE_ROWS;
+  const rows = [...new Set([...sorted.slice(0, keep + 1), ...booked])].sort((a, b) => a - b);
 
   const gapMs = rules.bufferMin * 60000;
 
@@ -37,7 +43,7 @@ export default function Slots() {
     const clash = live.find(
       (o) => o.iv.id !== l.iv.id && o.app.applicant_id === l.app.applicant_id && start < new Date(o.iv.ends_at).getTime() + gapMs && end + gapMs > new Date(o.iv.starts_at).getTime(),
     );
-    if (clash) return `${l.app.applicant.full_name} already has ${companyBy.get(clash.company)?.short_name ?? clash.company} at ${formatTime(clash.iv.starts_at)}–${formatTime(clash.iv.ends_at)}; keep ${rules.bufferMin} minutes between slots.`;
+    if (clash) return `${l.app.applicant.full_name} already has ${companyBy.get(clash.company)?.short_name ?? clash.company} in ${slotOf(clash.iv.starts_at)}, too close to this one.`;
     return null;
   }
 
@@ -60,7 +66,7 @@ export default function Slots() {
     setMsg('');
     const l = live.find((x) => x.iv.id === id);
     if (!l) return;
-    if (l.company !== company) return setMsg('A slot stays with its own company. Drop it on a time in the same column.');
+    if (l.company !== company) return setMsg('A slot stays with its own company. Drop it on another slot in the same column.');
     if (l.iv.checked_in_at || l.iv.done || l.iv.no_show) return setMsg('This student is already checked in or done; it cannot be moved.');
     const w = windows.get(company);
     const here = live.filter((o) => o.company === company && new Date(o.iv.starts_at).getTime() === start && o.iv.id !== id);
@@ -135,7 +141,7 @@ export default function Slots() {
       <section>
         <h1 className="font-bold text-[1.5rem]">All slots on {formatDay(day, { weekday: 'long' })}</h1>
         <p className="mt-1 text-ink-soft max-w-[80ch]">
-          Drag a student onto another time in the same company’s column to move them; drop on a full slot to swap two students. Drag a venue onto a company’s heading to place that company there. Each card also has a Move menu for touch screens.
+          Drag a student onto another slot in the same company’s column to move them; drop on a full slot to swap two students. Drag a venue onto a company’s heading to place that company there. Each card also has a Move menu for touch screens.
         </p>
         {msg && <p role="status" className="mt-3 bg-saffron-soft p-3 font-medium">{msg}</p>}
         {cols.length === 0 ? (
@@ -165,7 +171,7 @@ export default function Slots() {
                 );
               })}
               {rows.map((start) => (
-                <Row key={start} start={start} cols={cols.map((c) => c.code)} live={live} windows={windows} rules={rules} over={over} setOver={setOver} onDrop={onDropCell} setDrag={setDrag} drag={drag} move={move} allRows={rows} />
+                <Row key={start} day={day} start={start} cols={cols.map((c) => c.code)} live={live} windows={windows} rules={rules} over={over} setOver={setOver} onDrop={onDropCell} setDrag={setDrag} drag={drag} move={move} allRows={rows} slotOf={slotOf} />
               ))}
             </div>
           </div>
@@ -175,7 +181,8 @@ export default function Slots() {
   );
 }
 
-function Row({ start, cols, live, windows, rules, over, setOver, onDrop, setDrag, drag, move, allRows }: {
+function Row({ day, start, cols, live, windows, rules, over, setOver, onDrop, setDrag, drag, move, allRows, slotOf }: {
+  day: string;
   start: number;
   cols: string[];
   live: Live[];
@@ -188,15 +195,16 @@ function Row({ start, cols, live, windows, rules, over, setOver, onDrop, setDrag
   drag: { kind: 'iv'; id: string } | { kind: 'venue'; name: string } | null;
   move: (id: string, company: string, start: number) => Promise<void>;
   allRows: number[];
+  slotOf: (iso: string) => string;
 }) {
-  const label = formatTime(new Date(start).toISOString());
+  const label = slotOf(new Date(start).toISOString());
   return (
     <>
       <div className="bg-paper p-2 num small font-medium">{label}</div>
       {cols.map((c) => {
         const w = windows.get(c);
         const here = live.filter((l) => l.company === c && new Date(l.iv.starts_at).getTime() === start);
-        const onGrid = !!w && slotStarts(new Date(start).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), rules, w).includes(start);
+        const onGrid = !!w && slotStarts(day, rules, w).includes(start);
         const panels = w?.panels ?? 1;
         const key = `${c}:${start}`;
         return (
@@ -209,7 +217,7 @@ function Row({ start, cols, live, windows, rules, over, setOver, onDrop, setDrag
           >
             {here.map((l) => {
               const locked = !!(l.iv.checked_in_at || l.iv.done || l.iv.no_show);
-              const options = allRows.filter((t) => t !== start && !!w && slotStarts(new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), rules, w).includes(t));
+              const options = allRows.filter((t) => t !== start && !!w && slotStarts(day, rules, w).includes(t));
               return (
                 <div
                   key={l.iv.id}
@@ -219,11 +227,11 @@ function Row({ start, cols, live, windows, rules, over, setOver, onDrop, setDrag
                   className={`p-2 small ${locked ? 'bg-green-soft' : 'bg-mist cursor-grab active:cursor-grabbing'}`}
                 >
                   <p className="font-medium leading-tight">{l.app.applicant.full_name}</p>
-                  <p className="num text-ink-soft">{l.app.applicant.student_code} · {l.iv.panel ?? '—'} · until {formatTime(l.iv.ends_at)}{l.iv.done ? ' · done' : l.iv.checked_in_at ? ' · in' : ''}</p>
+                  <p className="num text-ink-soft">{l.app.applicant.student_code} · {l.iv.panel ?? '—'}{l.iv.done ? ' · done' : l.iv.checked_in_at ? ' · in' : ''}</p>
                   {!locked && (
                     <select aria-label={`Move ${l.app.applicant.full_name}`} className="field !min-h-[30px] !py-0 mt-1 small" value="" onChange={(e) => e.target.value && move(l.iv.id, c, Number(e.target.value))}>
                       <option value="">Move to…</option>
-                      {options.map((t) => <option key={t} value={t}>{formatTime(new Date(t).toISOString())}</option>)}
+                      {options.map((t) => <option key={t} value={t}>{slotOf(new Date(t).toISOString())}</option>)}
                     </select>
                   )}
                 </div>

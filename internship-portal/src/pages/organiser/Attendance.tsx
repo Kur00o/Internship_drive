@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import type { Placed } from '../../lib/allot';
-import { cancelInterviews, loadApplications, loadAttendance, loadStatusLog, markAttendance, saveSettings, unmarkAttendance, updateApplication } from '../../lib/api';
+import { slotLabel, type Placed } from '../../lib/allot';
+import { loadApplications, loadAttendance, markAttendance, saveSettings, unmarkAttendance } from '../../lib/api';
 import { formatDay, formatTime } from '../../lib/format';
 import { supabase } from '../../lib/supabase';
 import type { Application } from '../../lib/types';
-import { applyPlan, planDay } from './reflow';
+import { applyPlan, freeSlots, planDay } from './reflow';
 import { findStudent, liveInterviews, primaries, rulesFrom, venueOf } from './slotkit';
 import { useStore } from './store';
 
@@ -56,7 +56,7 @@ export default function Attendance() {
       present = student.full_name;
 
       // runs for students already present too, so entering the ID again finishes a failed allotment
-      const planFor = (list: Application[]) => planDay({ day, apps: list, attendance: [], sessions, roleBy, rules, student: student.id, notBefore: day === todayIst() ? Date.now() : 0 });
+      const planFor = (list: Application[]) => planDay({ day, days, apps: list, attendance: [], sessions, roleBy, rules, student: student.id, notBefore: day === todayIst() ? Date.now() : 0 });
       let plan = planFor(fresh);
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -72,7 +72,7 @@ export default function Attendance() {
       fresh = await loadApplications();
       setApps(fresh);
       setAttendance(await loadAttendance());
-      const slots: Placed[] = primaries(liveInterviews(fresh, roleBy, day))
+      const slots: Placed[] = primaries(liveInterviews(fresh, roleBy, day, days))
         .filter((l) => l.app.applicant_id === student.id)
         .map((l) => ({ company: l.company, appId: l.app.id, start: new Date(l.iv.starts_at).getTime(), end: new Date(l.iv.ends_at).getTime(), panel: l.iv.panel ?? '' }));
       const nameOf = (c: string) => companyBy.get(c)?.short_name ?? c;
@@ -82,7 +82,7 @@ export default function Attendance() {
       const notes = [
         plan.links.length > 0 && `${plan.links.length} more role${plan.links.length > 1 ? 's' : ''} at the same company linked to a slot, extended by ${plan.links.length * 15} minutes.`,
         full && `No free slot left at ${full}: add a panel or move a slot.`,
-        elsewhere && `${elsewhere} interviews on another day: mark them present that day for a slot there.`,
+        elsewhere && `${elsewhere} is not interviewing on this day, so no slot was given there.`,
       ].filter(Boolean);
       setMsg({
         tone: full || !slots.length ? 'bad' : 'good',
@@ -106,15 +106,7 @@ export default function Attendance() {
     if (!confirm('Remove this attendance and free the student’s slots? Slots already checked in or done stay.')) return;
     setBusy(true);
     try {
-      const mine = liveInterviews(apps, roleBy, day).filter((l) => l.app.applicant_id === applicantId && !l.iv.checked_in_at && !l.iv.done && !l.iv.no_show);
-      await cancelInterviews(mine.map((l) => l.iv.id));
-      for (const l of mine) {
-        // put the application back to where it was before it was scheduled
-        const log = await loadStatusLog(l.app.id);
-        const prev = log.find((e) => e.to_status === 'Interview Scheduled')?.from_status;
-        const stillLive = l.app.interviews.some((i) => !i.cancelled && i.id !== l.iv.id);
-        if (prev && !stillLive && l.app.status === 'Interview Scheduled') await updateApplication(l.app.id, { status: prev as Application['status'] });
-      }
+      await freeSlots(liveInterviews(apps, roleBy, day, days).filter((l) => l.app.applicant_id === applicantId && !l.iv.checked_in_at && !l.iv.done && !l.iv.no_show));
       await unmarkAttendance(attId);
       await reload();
     } catch (e) {
@@ -124,7 +116,8 @@ export default function Attendance() {
     }
   }
 
-  const dayInterviews = primaries(liveInterviews(apps, roleBy, day));
+  const dayInterviews = primaries(liveInterviews(apps, roleBy, day, days));
+  const slotOf = (iso: string) => slotLabel(iso, days, rules);
 
   return (
     <div className="grid gap-10">
@@ -155,7 +148,7 @@ export default function Attendance() {
               <ul className="mt-2 grid gap-1 num">
                 {[...msg.slots].sort((a, b) => a.start - b.start).map((p) => (
                   <li key={p.appId}>
-                    {formatTime(new Date(p.start).toISOString())}–{formatTime(new Date(p.end).toISOString())} · {companyBy.get(p.company)?.short_name ?? p.company}
+                    {slotOf(new Date(p.start).toISOString())} · {companyBy.get(p.company)?.short_name ?? p.company}
                     {venueOf(p.company, day, sessions) ? ` · ${venueOf(p.company, day, sessions)}` : ''}
                   </li>
                 ))}
@@ -195,7 +188,7 @@ export default function Attendance() {
                       <td className="py-2.5 pr-3 num small">
                         {mine.length === 0 ? <span className="text-ink-soft">No slots</span> : mine.map((l) => (
                           <span key={l.iv.id} className="block">
-                            {formatTime(l.iv.starts_at)}–{formatTime(l.iv.ends_at)} · {companyBy.get(l.company)?.short_name ?? l.company}{l.iv.room ? ` · ${l.iv.room}` : ''}
+                            {slotOf(l.iv.starts_at)} · {companyBy.get(l.company)?.short_name ?? l.company}{l.iv.room ? ` · ${l.iv.room}` : ''}
                           </span>
                         ))}
                       </td>

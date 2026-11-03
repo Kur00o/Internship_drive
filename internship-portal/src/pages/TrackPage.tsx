@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Masthead, SiteFooter } from '../components/Brand';
 import { trackApplication } from '../lib/api';
-import { formatDateTime, formatTime, studentStatus } from '../lib/format';
-import { useDocumentTitle, usePublicData } from '../lib/hooks';
+import { formatDateTime, formatDay, studentStatus } from '../lib/format';
+import { useDocumentTitle, usePublicData, useSlots } from '../lib/hooks';
 import type { TrackResult } from '../lib/types';
 
 const TONE: Record<string, string> = {
@@ -16,6 +16,7 @@ const TONE: Record<string, string> = {
 export default function TrackPage() {
   useDocumentTitle('Track my application · Internship Drive 2026');
   const { data } = usePublicData();
+  const { slotOf, dayOf } = useSlots();
   const [form, setForm] = useState({ prn: '', email: '', phone: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -140,12 +141,12 @@ export default function TrackPage() {
                           <div key={iv.interview_code} className="bg-ink text-paper p-5 md:p-6 grid sm:grid-cols-3 gap-4">
                             <div>
                               <p className="small text-paper/75">Interview</p>
-                              <p className="font-bold text-[1.25rem]">{formatDateTime(iv.starts_at)}</p>
-                              <p className="small">until {formatTime(iv.ends_at)} · {iv.interview_code}</p>
+                              <p className="font-bold text-[1.25rem]">{formatDay(dayOf(iv.starts_at))}</p>
+                              <p className="small">{iv.interview_code}</p>
                             </div>
                             <div>
-                              <p className="small text-paper/75">Report by</p>
-                              <p className="font-bold text-[1.25rem]">{iv.reporting_at ? formatTime(iv.reporting_at) : formatTime(new Date(new Date(iv.starts_at).getTime() - 30 * 60000).toISOString())}</p>
+                              <p className="small text-paper/75">Your slot</p>
+                              <p className="font-bold text-[1.25rem]">{slotOf(iv.starts_at)}</p>
                             </div>
                             <div>
                               <p className="small text-paper/75">{iv.mode === 'Online' ? 'Online' : 'Room'}</p>

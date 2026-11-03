@@ -5,8 +5,8 @@ import { supabase } from '../lib/supabase';
 import { YiLogo } from '../components/Brand';
 import Linkified from '../components/Linkified';
 import { companyResumeSignedUrl, companyResumeUrl, loadCompanyPortal, setCompanyDecision } from '../lib/api';
-import { downloadCsv, formatDateTime, formatDay, formatTime, isoToIstDate, plural } from '../lib/format';
-import { useDocumentTitle } from '../lib/hooks';
+import { downloadCsv, formatDay, plural } from '../lib/format';
+import { useDocumentTitle, useSlots } from '../lib/hooks';
 import type { PortalApplication, PortalData } from '../lib/types';
 import CompanySchedule, { slotsFrom } from './CompanySchedule';
 
@@ -75,6 +75,7 @@ function Dashboard({ token }: { token: string }) {
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [page, setPage] = useState<'applicants' | 'schedule'>('applicants');
+  const { slotOf, dayOf } = useSlots();
   useDocumentTitle(data ? `${data.company.short_name} · ${page} · Internship Drive 2026` : 'Company dashboard · Internship Drive 2026');
 
   const load = useCallback(() => {
@@ -161,7 +162,7 @@ function Dashboard({ token }: { token: string }) {
         a.challenge_response,
         a.student.email,
         a.student.phone,
-        a.interviews[0] ? formatDateTime(a.interviews[0].starts_at) : '',
+        a.interviews[0] ? `${formatDay(dayOf(a.interviews[0].starts_at))} · ${slotOf(a.interviews[0].starts_at)}` : '',
       ]),
     ]);
 
@@ -278,11 +279,11 @@ function Dashboard({ token }: { token: string }) {
                 <ol className="mt-3 grid gap-2">
                   {slots.map(({ iv, app, roles }) => (
                     <li key={iv.interview_code} className="grid grid-cols-[5.5rem_1fr] gap-3">
-                      <span className="num font-medium">{formatTime(iv.starts_at)}</span>
+                      <span className="num font-medium">{slotOf(iv.starts_at)}</span>
                       <span>
                         <span className="font-medium">{app.student.full_name}</span>
                         <span className="block small">
-                          {formatDay(isoToIstDate(iv.starts_at))} · {roles.join(', ')} · {iv.mode === 'Online' ? 'Online' : iv.room || 'room TBA'}
+                          {formatDay(dayOf(iv.starts_at))} ·{roles.join(', ')} · {iv.mode === 'Online' ? 'Online' : iv.room || 'room TBA'}
                           {iv.checked_in_at ? ' · checked in' : ''}
                           {iv.done ? ' · done' : ''}
                           {iv.no_show ? ' · no-show' : ''}
@@ -338,6 +339,7 @@ function ApplicantRow({
   const [err, setErr] = useState('');
   const after = AFTER_INTERVIEW.includes(app.status);
   const s = app.student;
+  const { slotOf, dayOf } = useSlots();
 
   async function openSessionResume(e: React.MouseEvent) {
     e.preventDefault();
@@ -438,7 +440,7 @@ function ApplicantRow({
             )}
             {app.interviews.map((iv) => (
               <Info key={iv.interview_code} label={`Interview ${iv.interview_code}`}>
-                {formatDateTime(iv.starts_at)}–{formatTime(iv.ends_at)} · {iv.mode === 'Online' ? iv.meet_url || 'online' : iv.room || 'room TBA'}
+                {formatDay(dayOf(iv.starts_at))} · {slotOf(iv.starts_at)} · {iv.mode === 'Online' ? iv.meet_url || 'online' : iv.room || 'room TBA'}
                 {iv.panel ? ` · panel ${iv.panel}` : ''}
               </Info>
             ))}

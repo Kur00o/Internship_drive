@@ -64,7 +64,7 @@ export function studentStatus(status: Status): { label: string; note: string; to
     case 'Assignment Not Submitted':
       return { label: 'Task missed', note: 'The task deadline passed without a submission.', tone: 'bad' };
     case 'Interview Scheduled':
-      return { label: 'Interview scheduled', note: 'Report 30 minutes early with your college ID and two printed resumes.', tone: 'good' };
+      return { label: 'Interview scheduled', note: 'Interviews go by slot number. Bring your college ID and two printed resumes.', tone: 'good' };
     case 'Interviewed':
       return { label: 'Interviewed', note: 'The company is deciding. Results come after they confirm.', tone: 'wait' };
     case 'No-show':

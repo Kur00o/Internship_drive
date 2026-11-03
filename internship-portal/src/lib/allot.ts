@@ -7,9 +7,14 @@
 // one after another rotate across companies (A,B,C / B,C,A / C,A,B) and no
 // slot is left empty while somebody is still waiting.
 
-import { istToIso } from './format';
+import { isoToIstDate, istToIso } from './format';
+import type { DriveSettings } from './types';
 
 const MIN = 60000;
+const DAY_MS = 24 * 60 * MIN;
+// Slots are shown as serial numbers, not clock times, so a drive day's grid
+// runs on past midnight. Stored start times only order the slots.
+const HORIZON_DAYS = 3;
 export const EXTEND_MS = 15 * MIN; // added to a slot for each extra role at the same company
 
 export interface Rules {
@@ -49,11 +54,40 @@ export interface Placed extends Want {
 
 export const panelName = (company: string, n: number) => `${company}-P${n}`;
 
+export const DEFAULT_RULES: Rules = { slotMin: 30, bufferMin: 20, dayStart: '11:00', lunchStart: '13:00', lunchEnd: '14:00' };
+
+export function rulesFrom(s?: DriveSettings): Rules {
+  if (!s || s.slot_minutes == null) return DEFAULT_RULES;
+  return {
+    slotMin: s.slot_minutes,
+    bufferMin: s.buffer_minutes,
+    dayStart: s.day_start.slice(0, 5),
+    lunchStart: s.lunch_start?.slice(0, 5) ?? null,
+    lunchEnd: s.lunch_end?.slice(0, 5) ?? null,
+  };
+}
+
 /** A company starts at its own session time, else the interview start time. There is no end time. */
 export function windowFor(day: string, rules: Rules, session?: { starts_at: string | null; panels: number }[]): Window {
   const clock = (t: string) => new Date(istToIso(day, t.slice(0, 5))).getTime();
   const own = (session ?? []).filter((s) => s.starts_at).map((s) => clock(s.starts_at!));
-  return { start: own.length ? Math.min(...own) : clock(rules.dayStart), end: clock('23:59'), panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
+  return { start: own.length ? Math.min(...own) : clock(rules.dayStart), end: clock('00:00') + HORIZON_DAYS * DAY_MS, panels: Math.max(1, ...(session ?? []).map((s) => s.panels)) };
+}
+
+/** The drive day a slot belongs to: the latest drive day it started on or after, since late slots run past midnight. */
+export function driveDayOf(iso: string, days: string[]) {
+  const date = isoToIstDate(iso);
+  const back = new Date(istToIso(date, '12:00')).getTime() - HORIZON_DAYS * DAY_MS;
+  return [...days].sort().reverse().find((d) => d <= date && new Date(istToIso(d, '12:00')).getTime() > back) ?? date;
+}
+
+/** Serial number of a slot on its day's grid. A start between grid times shares the number before it. */
+export function slotNumber(day: string, rules: Rules, start: number) {
+  return Math.max(1, slotStarts(day, rules, windowFor(day, rules)).filter((s) => s <= start).length);
+}
+
+export function slotLabel(iso: string, days: string[], rules: Rules) {
+  return `Slot ${slotNumber(driveDayOf(iso, days), rules, new Date(iso).getTime())}`;
 }
 
 /** Start times (epoch ms) of every slot in a window. */

@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import Linkified from '../../components/Linkified';
 import { PROGRAMMES } from '../../lib/content';
 import { createInterviews, loadStatusLog, resumeSignedUrl, updateApplication } from '../../lib/api';
-import { downloadCsv, formatDateTime, formatTime, istToIso } from '../../lib/format';
+import { driveDayOf, rulesFrom, slotLabel } from '../../lib/allot';
+import { downloadCsv, formatDateTime, formatDay, istToIso } from '../../lib/format';
 import { REASON_CODES, STATUSES, TRACKS, type Application, type StatusLogEntry } from '../../lib/types';
 import { cancelRole } from './reflow';
 import { useStore } from './store';
@@ -113,7 +114,7 @@ export default function Applications() {
           const iv = a.interviews.find((i) => !i.cancelled);
           return forCompany
             ? [a.app_code, s.full_name, s.programme, s.specialisation, s.year_of_study, s.cgpa, a.role_code, a.preference, s.portfolio_url, a.why_fit, a.challenge_response, s.office_availability, a.status, a.company_decision ?? '', '', a.company_comment ?? '']
-            : [a.app_code, s.student_code, s.prn, s.full_name, s.email, s.phone, s.school, s.programme, s.specialisation, s.year_of_study, s.graduation_year, s.cgpa, s.professional_courses.join(' '), a.role_code, companyBy.get(r?.company_code ?? '')?.name, a.preference, a.status, a.reason_code, a.company_decision, a.company_rating, a.company_comment, a.remarks, s.portfolio_url, s.linkedin_url, s.available_from, s.office_availability, s.interview_availability.join('; '), a.why_fit, a.challenge_response, formatDateTime(a.created_at), iv ? formatDateTime(iv.starts_at) : ''];
+            : [a.app_code, s.student_code, s.prn, s.full_name, s.email, s.phone, s.school, s.programme, s.specialisation, s.year_of_study, s.graduation_year, s.cgpa, s.professional_courses.join(' '), a.role_code, companyBy.get(r?.company_code ?? '')?.name, a.preference, a.status, a.reason_code, a.company_decision, a.company_rating, a.company_comment, a.remarks, s.portfolio_url, s.linkedin_url, s.available_from, s.office_availability, s.interview_availability.join('; '), a.why_fit, a.challenge_response, formatDateTime(a.created_at), iv ? slotLabel(iv.starts_at, pub?.settings.drive_days ?? [], rulesFrom(pub?.settings)) : ''];
         }),
       ],
     );
@@ -347,6 +348,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const days = pub?.settings.drive_days ?? ['2026-11-03'];
+  const slotOf = (iso: string) => slotLabel(iso, days, rulesFrom(pub?.settings));
   const [iv, setIv] = useState({ day: days[0], time: '10:00', minutes: String(role?.interview_minutes ?? 15), panel: `${role?.company_code ?? ''}-P1`, mode: 'Campus', room: '', meet: '' });
 
   useEffect(() => {
@@ -409,7 +411,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
     const e0 = new Date(end).getTime();
     const gap = 30 * 60000;
     const hit = mine.find((i) => s0 < new Date(i.ends_at).getTime() + gap && e0 + gap > new Date(i.starts_at).getTime());
-    return hit ? `Clashes with ${hit.interview_code} at ${formatTime(hit.starts_at)} (students need 30 minutes between interviews).` : '';
+    return hit ? `Clashes with ${hit.interview_code} in ${slotOf(hit.starts_at)} (students need 30 minutes between interviews).` : '';
   }
 
   return (
@@ -476,7 +478,7 @@ function Detail({ app, onClose, onChanged }: { app: Application; onClose: () => 
         <h3 className="font-bold">Interview</h3>
         {app.interviews.filter((i) => !i.cancelled).map((i) => (
           <div key={i.id} className="bg-paper p-3 small grid gap-1">
-            <p className="font-medium">{i.interview_code} · {formatDateTime(i.starts_at)}–{formatTime(i.ends_at)}</p>
+            <p className="font-medium">{i.interview_code} · {formatDay(driveDayOf(i.starts_at, days))} · {slotOf(i.starts_at)}</p>
             <p>{i.mode === 'Online' ? i.meet_url || 'Online' : i.room || 'Room TBA'}{i.panel ? ` · ${i.panel}` : ''}</p>
             <button
               className="link justify-self-start"
